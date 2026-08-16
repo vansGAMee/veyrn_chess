@@ -1,4 +1,4 @@
-import type { Square, Color, PieceSymbol } from './chess';
+import type { Square, Color } from './chess';
 
 export const PROTOCOL_VERSION = 1;
 

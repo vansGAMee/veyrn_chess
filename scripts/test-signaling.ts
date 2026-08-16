@@ -9,7 +9,8 @@ async function testSignaling() {
     data: { sdp: 'fake-sdp-offer', type: 'offer' },
   };
 
-  const postRes = await fetch(`http://localhost:3000/api/signal/${roomId}`, {
+  const port = process.env.PORT || '3000';
+  const postRes = await fetch(`http://localhost:${port}/api/signal/${roomId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(hostMsg),
@@ -23,7 +24,7 @@ async function testSignaling() {
   console.log('✅ Host posted offer successfully');
 
   // 2. Guest polls and retrieves offer
-  const getRes = await fetch(`http://localhost:3000/api/signal/${roomId}?senderId=guest-456&since=0`);
+  const getRes = await fetch(`http://localhost:${port}/api/signal/${roomId}?senderId=guest-456&since=0`);
   const getData = await getRes.json();
 
   if (getData.messages?.length === 1 && getData.messages[0].type === 'offer') {
@@ -40,14 +41,14 @@ async function testSignaling() {
     data: { sdp: 'fake-sdp-answer', type: 'answer' },
   };
 
-  await fetch(`http://localhost:3000/api/signal/${roomId}`, {
+  await fetch(`http://localhost:${port}/api/signal/${roomId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(guestMsg),
   });
 
   // 4. Host polls and retrieves answer
-  const hostGetRes = await fetch(`http://localhost:3000/api/signal/${roomId}?senderId=host-123&since=0`);
+  const hostGetRes = await fetch(`http://localhost:${port}/api/signal/${roomId}?senderId=host-123&since=0`);
   const hostGetData = await hostGetRes.json();
 
   if (hostGetData.messages?.length === 1 && hostGetData.messages[0].type === 'answer') {

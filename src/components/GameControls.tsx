@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import type { TimeControl, GameResult } from '@/types/chess';
 import { TIME_CONTROLS } from '@/types/chess';
+import type { TransportStatus, TransportStats } from '@/transport/GameTransport';
 
 interface SetupControlsProps {
   selectedTC: TimeControl;
@@ -78,7 +79,7 @@ export function WaitingBar({ roomId }: WaitingBarProps) {
   }, [roomId]);
 
   return (
-    <div className="control-strip waiting-strip">
+    <div className="control-strip waiting-strip waiting-bar">
       <div className="waiting-info">
         <span className="status-dot waiting" />
         <span className="waiting-text">Awaiting Opponent</span>
@@ -90,6 +91,74 @@ export function WaitingBar({ roomId }: WaitingBarProps) {
       >
         {copied ? 'Link Copied' : 'Copy Room Link'}
       </button>
+    </div>
+  );
+}
+
+interface ConnectionBarProps {
+  status: TransportStatus;
+  stats?: TransportStats | null;
+  onRetry?: () => void;
+  onNewGame?: () => void;
+}
+
+export function ConnectionBar({
+  status,
+  stats,
+  onRetry,
+  onNewGame,
+}: ConnectionBarProps) {
+  let label = 'Connecting to opponent…';
+  let dotClass = 'status-dot waiting';
+  let canRetry = false;
+
+  if (status === 'timeout') {
+    label = 'Connection timed out';
+    dotClass = 'status-dot danger';
+    canRetry = true;
+  } else if (status === 'failed') {
+    label = 'Connection failed';
+    dotClass = 'status-dot danger';
+    canRetry = true;
+  } else if (status === 'peer-disconnected') {
+    label = 'Opponent disconnected';
+    dotClass = 'status-dot warning';
+  } else if (status === 'disconnected') {
+    label = 'Disconnected';
+    dotClass = 'status-dot danger';
+    canRetry = true;
+  } else if (status === 'connected') {
+    const relayMode = stats?.isRelay ? 'TURN Relay' : 'P2P Direct';
+    label = `Connected (${relayMode})`;
+    dotClass = stats?.isRelay ? 'status-dot relay' : 'status-dot';
+  }
+
+  return (
+    <div className="control-strip waiting-strip waiting-bar">
+      <div className="waiting-info">
+        <span className={dotClass} />
+        <span className="waiting-text">{label}</span>
+      </div>
+      <div className="end-actions">
+        {canRetry && onRetry && (
+          <button
+            className="control-action-rematch"
+            onClick={onRetry}
+            aria-label="Retry connection"
+          >
+            Retry
+          </button>
+        )}
+        {onNewGame && (
+          <button
+            className="control-action-new"
+            onClick={onNewGame}
+            aria-label="New game"
+          >
+            New Game
+          </button>
+        )}
+      </div>
     </div>
   );
 }

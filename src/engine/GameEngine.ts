@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { Square, Color, PieceSymbol } from 'chess.js';
+import type { Square, Color } from 'chess.js';
 import type { MoveIntent, BoardState, PieceData, GameResult, TimeControl, RoomState, RoomStatus } from '@/types/chess';
 
 export type GameEngineListener = (state: GameEngineState) => void;

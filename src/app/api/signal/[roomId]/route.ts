@@ -1,49 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-interface SignalMessage {
-  id: string;
-  senderId: string;
-  type: string;
-  data: unknown;
-  timestamp: number;
-}
-
-// In-memory ephemeral message queue per roomId
-// Cleaned up after 3 minutes of inactivity
-const rooms = new Map<string, { messages: SignalMessage[]; lastActive: number }>();
-
-function cleanupOldRooms() {
-  const now = Date.now();
-  for (const [roomId, room] of rooms.entries()) {
-    if (now - room.lastActive > 180000) {
-      rooms.delete(roomId);
-    }
-  }
-}
+import {
+  getRoomMessages,
+  addRoomMessage,
+  deleteRoom,
+  validateRoomId,
+} from '@/lib/signaling';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ roomId: string }> }
 ) {
   const { roomId } = await context.params;
+
+  if (!validateRoomId(roomId)) {
+    return NextResponse.json(
+      { error: 'Invalid room ID' },
+      { status: 400 }
+    );
+  }
+
   const url = new URL(request.url);
   const senderId = url.searchParams.get('senderId') || '';
   const since = parseInt(url.searchParams.get('since') || '0', 10);
 
-  cleanupOldRooms();
+  const result = await getRoomMessages(roomId, senderId, since);
 
-  const room = rooms.get(roomId);
-  if (!room) {
-    return NextResponse.json({ messages: [] });
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error || 'Failed to retrieve messages' },
+      { status: result.error === 'Invalid room ID format' ? 400 : 500 }
+    );
   }
 
-  room.lastActive = Date.now();
-  // Return messages not sent by this client and created after `since`
-  const messages = room.messages.filter(
-    (m) => m.senderId !== senderId && m.timestamp > since
+  return NextResponse.json(
+    { messages: result.messages },
+    {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    }
   );
-
-  return NextResponse.json({ messages });
 }
 
 export async function POST(
@@ -51,39 +47,52 @@ export async function POST(
   context: { params: Promise<{ roomId: string }> }
 ) {
   const { roomId } = await context.params;
-  const body = await request.json();
+
+  if (!validateRoomId(roomId)) {
+    return NextResponse.json(
+      { error: 'Invalid room ID' },
+      { status: 400 }
+    );
+  }
+
+  let body: Record<string, unknown>;
+  let textLength = 0;
+  try {
+    const rawText = await request.text();
+    textLength = rawText.length;
+    body = JSON.parse(rawText);
+  } catch {
+    return NextResponse.json(
+      { error: 'Malformed JSON payload' },
+      { status: 400 }
+    );
+  }
+
   const { senderId, type, data } = body;
 
-  if (!senderId || !type) {
-    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-  }
-
-  cleanupOldRooms();
-
-  let room = rooms.get(roomId);
-  if (!room) {
-    room = { messages: [], lastActive: Date.now() };
-    rooms.set(roomId, room);
-  }
-
-  room.lastActive = Date.now();
-
-  const message: SignalMessage = {
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    senderId,
-    type,
+  const result = await addRoomMessage(
+    roomId,
+    senderId as string,
+    type as string,
     data,
-    timestamp: Date.now(),
-  };
+    textLength
+  );
 
-  room.messages.push(message);
-
-  // Keep only last 100 messages per room
-  if (room.messages.length > 100) {
-    room.messages = room.messages.slice(-100);
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status || 400 }
+    );
   }
 
-  return NextResponse.json({ ok: true, id: message.id, timestamp: message.timestamp });
+  return NextResponse.json(
+    { ok: true, id: result.id, timestamp: result.timestamp },
+    {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    }
+  );
 }
 
 export async function DELETE(
@@ -91,6 +100,14 @@ export async function DELETE(
   context: { params: Promise<{ roomId: string }> }
 ) {
   const { roomId } = await context.params;
-  rooms.delete(roomId);
-  return NextResponse.json({ ok: true });
+
+  if (!validateRoomId(roomId)) {
+    return NextResponse.json(
+      { error: 'Invalid room ID' },
+      { status: 400 }
+    );
+  }
+
+  const result = await deleteRoom(roomId);
+  return NextResponse.json({ ok: result.ok });
 }

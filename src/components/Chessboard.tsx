@@ -94,20 +94,25 @@ export function Chessboard({
   useEffect(() => {
     if (board.lastMove && board.lastMove !== prevLastMoveRef.current) {
       prevLastMoveRef.current = board.lastMove;
-      setArrows([]);
-      setMarkers([]);
 
-      const destIdx = indexFromSquare(board.lastMove.to);
+      const lastMove = board.lastMove;
+      const destIdx = indexFromSquare(lastMove.to);
       const piece = board.pieces[destIdx];
-      if (piece) {
-        setMoveEcho({ square: board.lastMove.from, type: piece.type, color: piece.color });
-        const timer = setTimeout(() => setMoveEcho(null), 200);
-        return () => clearTimeout(timer);
-      }
 
-      setRailMovePulse(true);
-      const pulseTimer = setTimeout(() => setRailMovePulse(false), 200);
-      return () => clearTimeout(pulseTimer);
+      const animTimer = setTimeout(() => {
+        setArrows([]);
+        setMarkers([]);
+
+        if (piece) {
+          setMoveEcho({ square: lastMove.from, type: piece.type, color: piece.color });
+          setTimeout(() => setMoveEcho(null), 200);
+        } else {
+          setRailMovePulse(true);
+          setTimeout(() => setRailMovePulse(false), 200);
+        }
+      }, 0);
+
+      return () => clearTimeout(animTimer);
     }
   }, [board.lastMove, board.pieces]);
 
@@ -132,6 +137,7 @@ export function Chessboard({
   }, [isFlipped]);
 
   // Drag rAF loop: 1:1 hardware translation with zero drift
+  const updateDragPositionRef = useRef<() => void>(() => {});
   const updateDragPosition = useCallback(() => {
     const drag = dragRef.current;
     if (!drag || !drag.isDragging) return;
@@ -140,8 +146,12 @@ export function Chessboard({
     const dy = drag.latestY - drag.startY;
 
     drag.pieceEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
-    drag.rafId = requestAnimationFrame(updateDragPosition);
+    drag.rafId = requestAnimationFrame(() => updateDragPositionRef.current());
   }, []);
+
+  useEffect(() => {
+    updateDragPositionRef.current = updateDragPosition;
+  }, [updateDragPosition]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const square = getSquareFromPointer(e.clientX, e.clientY);

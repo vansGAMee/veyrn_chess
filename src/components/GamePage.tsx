@@ -2,14 +2,23 @@
 
 import React, { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
 import { GameEngine } from '@/engine/GameEngine';
-import { P2PGameTransport } from '@/transport/GameTransport';
-import type { TimeControl, MoveIntent, GameResult } from '@/types/chess';
+import {
+  P2PGameTransport,
+  type TransportStatus,
+  type TransportStats,
+} from '@/transport/GameTransport';
+import type { TimeControl, MoveIntent } from '@/types/chess';
 import type { Color, Square } from '@/types/chess';
 import { TIME_CONTROLS } from '@/types/chess';
 import type { GameMessagePayload } from '@/types/protocol';
 import { Chessboard } from '@/components/Chessboard';
 import { Clock } from '@/components/Clock';
-import { SetupControls, WaitingBar, GameEndBar } from '@/components/GameControls';
+import {
+  SetupControls,
+  WaitingBar,
+  GameEndBar,
+  ConnectionBar,
+} from '@/components/GameControls';
 import {
   playMoveSound,
   playCaptureSound,
@@ -35,14 +44,8 @@ interface GamePageProps {
 }
 
 export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageProps) {
-  const engineRef = useRef<GameEngine | null>(null);
+  const [engine] = useState(() => new GameEngine());
   const transportRef = useRef<P2PGameTransport | null>(null);
-
-  if (!engineRef.current) {
-    engineRef.current = new GameEngine();
-  }
-
-  const engine = engineRef.current;
 
   // Stable subscription with useSyncExternalStore
   const getSnapshot = useCallback(() => engine.getState(), [engine]);
@@ -56,11 +59,13 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   const [selectedTC, setSelectedTC] = useState<TimeControl>(TIME_CONTROLS[3]); // 5+0 default
-  const [connectionStatus, setConnectionStatus] = useState<
-    'disconnected' | 'connecting' | 'connected'
-  >('disconnected');
+  const [transportStatus, setTransportStatus] = useState<TransportStatus>('idle');
+  const [transportStats, setTransportStats] = useState<TransportStats | null>(null);
+  const [activeRoomId, setActiveRoomId] = useState<string>(initialRoomId || '');
+  const [isHostRole, setIsHostRole] = useState<boolean>(!isJoining);
   const [isZen, setIsZen] = useState(false);
   const zenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoJoinInitiatedRef = useRef(false);
 
   // Auto Zen: after first move, quiet secondary controls during focus
   const handleActivity = useCallback(() => {
@@ -93,10 +98,12 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       const transport = new P2PGameTransport();
       transportRef.current = transport;
 
-      transport.subscribe((payload: GameMessagePayload) => {
-        const eng = engineRef.current;
-        if (!eng) return;
+      transport.onStatus((status, stats) => {
+        setTransportStatus(status);
+        if (stats) setTransportStats(stats);
+      });
 
+      transport.subscribe((payload: GameMessagePayload) => {
         switch (payload.type) {
           case 'hello': {
             // Guest announced presence to Host
@@ -109,8 +116,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
                 color: guestColor,
               });
 
-              eng.startGame(hostColor);
-              setConnectionStatus('connected');
+              engine.startGame(hostColor);
               playPeerJoinedSound();
               setTimeout(() => playGameStartSound(), 280);
             }
@@ -120,8 +126,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           case 'ready': {
             // Guest receives allocated color from Host
             const readyPayload = payload as { type: 'ready'; color: Color };
-            eng.startGame(readyPayload.color);
-            setConnectionStatus('connected');
+            engine.startGame(readyPayload.color);
             playPeerJoinedSound();
             setTimeout(() => playGameStartSound(), 280);
             break;
@@ -135,7 +140,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
               promotion?: 'q' | 'r' | 'b' | 'n';
               clock: number;
             };
-            const beforeState = eng.getState().board;
+            const beforeState = engine.getState().board;
             const toIdx =
               movePayload.to.charCodeAt(0) -
               97 +
@@ -143,14 +148,14 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
             const wasCapture = beforeState.pieces[toIdx] !== null;
 
             // Apply remote move & check if local queued premove executes
-            const executedPremove = eng.applyRemoteMove(
+            const executedPremove = engine.applyRemoteMove(
               movePayload.from,
               movePayload.to,
               movePayload.promotion,
               movePayload.clock
             );
 
-            const afterState = eng.getState().board;
+            const afterState = engine.getState().board;
             if (afterState.isCheck) {
               playCheckSound();
             } else if (wasCapture) {
@@ -165,8 +170,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
             // If premove was automatically executed, send it across the wire
             if (executedPremove && transportRef.current) {
-              const times = eng.getCurrentTime();
-              const myColor = eng.getPlayerColor();
+              const times = engine.getCurrentTime();
+              const myColor = engine.getPlayerColor();
               const myClock = myColor === 'w' ? times.white : times.black;
 
               transportRef.current.send({
@@ -184,7 +189,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           case 'rematch-offer': {
             // Reciprocal rematch acceptance
             transport.send({ type: 'rematch-response', accepted: true });
-            eng.resetForRematch();
+            engine.resetForRematch();
             playGameStartSound();
             break;
           }
@@ -192,14 +197,14 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           case 'rematch-response': {
             const rematchPayload = payload as { type: 'rematch-response'; accepted: boolean };
             if (rematchPayload.accepted) {
-              eng.resetForRematch();
+              engine.resetForRematch();
               playGameStartSound();
             }
             break;
           }
 
           case 'resign': {
-            eng.resign();
+            engine.resign();
             playGameEndSound();
             break;
           }
@@ -214,18 +219,19 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
       return transport;
     },
-    []
+    [engine]
   );
 
   const handleCreateRoom = useCallback(() => {
     initAudioOnGesture();
     const roomId = generateRoomId();
+    setActiveRoomId(roomId);
+    setIsHostRole(true);
+
     engine.setTimeControl(selectedTC);
     engine.createRoom(roomId);
 
     const transport = setupTransport(roomId, true);
-    setConnectionStatus('connecting');
-
     transport.connect(roomId, true).catch((err) => {
       console.warn('Host connection notice:', err);
     });
@@ -236,16 +242,16 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   const handleJoinRoom = useCallback(
     (roomId: string) => {
       initAudioOnGesture();
+      setActiveRoomId(roomId);
+      setIsHostRole(false);
+
       engine.setTimeControl(selectedTC);
       engine.joinRoom(roomId, 'b');
 
       const transport = setupTransport(roomId, false);
-      setConnectionStatus('connecting');
-
       transport
         .connect(roomId, false)
         .then(() => {
-          setConnectionStatus('connected');
           transport.send({ type: 'hello' });
         })
         .catch((err) => {
@@ -255,25 +261,32 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     [engine, selectedTC, setupTransport]
   );
 
+  const handleRetryConnection = useCallback(() => {
+    if (!activeRoomId) return;
+    if (isHostRole) {
+      handleCreateRoom();
+    } else {
+      handleJoinRoom(activeRoomId);
+    }
+  }, [activeRoomId, isHostRole, handleCreateRoom, handleJoinRoom]);
+
   // Auto-join from URL parameter
   useEffect(() => {
-    if (isJoining && initialRoomId && connectionStatus === 'disconnected') {
+    if (isJoining && initialRoomId && !autoJoinInitiatedRef.current) {
+      autoJoinInitiatedRef.current = true;
       handleJoinRoom(initialRoomId);
     }
-  }, [isJoining, initialRoomId, connectionStatus, handleJoinRoom]);
+  }, [isJoining, initialRoomId, handleJoinRoom]);
 
   const handleMove = useCallback((intent: MoveIntent): boolean => {
-    const eng = engineRef.current;
-    if (!eng) return false;
-
-    const beforeState = eng.getState().board;
+    const beforeState = engine.getState().board;
     const toIdx =
       intent.to.charCodeAt(0) - 97 + (8 - parseInt(intent.to[1], 10)) * 8;
     const isCapture = beforeState.pieces[toIdx] !== null;
 
-    const success = eng.tryMove(intent);
+    const success = engine.tryMove(intent);
     if (success) {
-      const newState = eng.getState();
+      const newState = engine.getState();
       if (newState.board.isCheck) {
         playCheckSound();
       } else if (isCapture) {
@@ -287,8 +300,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       }
 
       if (transportRef.current && transportRef.current.isConnected()) {
-        const times = eng.getCurrentTime();
-        const myColor = eng.getPlayerColor();
+        const times = engine.getCurrentTime();
+        const myColor = engine.getPlayerColor();
         const myClock = myColor === 'w' ? times.white : times.black;
 
         transportRef.current.send({
@@ -301,31 +314,26 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       }
     }
     return success;
-  }, []);
+  }, [engine]);
 
   const handleSelect = useCallback(
     (square: Square | null) => {
-      const eng = engineRef.current;
-      if (!eng) return;
-
       if (square === null) {
-        eng.clearSelection();
+        engine.clearSelection();
         return;
       }
 
-      const moveIntent = eng.selectSquare(square);
+      const moveIntent = engine.selectSquare(square);
       if (moveIntent) {
         handleMove(moveIntent);
       }
     },
-    [handleMove]
+    [engine, handleMove]
   );
 
   const handlePremove = useCallback((intent: MoveIntent | null) => {
-    const eng = engineRef.current;
-    if (!eng) return;
-    eng.setPremove(intent);
-  }, []);
+    engine.setPremove(intent);
+  }, [engine]);
 
   const handleRematch = useCallback(() => {
     if (transportRef.current) {
@@ -348,7 +356,9 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       transportRef.current.disconnect();
       transportRef.current = null;
     }
-    setConnectionStatus('disconnected');
+    setTransportStatus('idle');
+    setTransportStats(null);
+    setActiveRoomId('');
     window.history.pushState({}, '', '/');
     engine.createRoom('');
   }, [engine]);
@@ -361,7 +371,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     [engine]
   );
 
-  // Dynamic viewport-proportional board size (~80% viewport dominance)
+  // Dynamic viewport-proportional board size
   useEffect(() => {
     const computeBoardSize = () => {
       const vh = window.innerHeight;
@@ -386,14 +396,14 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   useEffect(() => {
     return () => {
       transportRef.current?.disconnect();
-      engineRef.current?.destroy();
+      engine.destroy();
     };
-  }, []);
+  }, [engine]);
 
   const { board, room, premove } = state;
   const isPlaying = room.status === 'playing';
   const isEnded = room.status === 'ended';
-  const isWaiting = room.status === 'waiting';
+  const isWaiting = room.status === 'waiting' && transportStatus === 'waiting';
   const isIdle = room.status === 'idle';
 
   // In idle mode, player is White by default but can move both sides
@@ -464,10 +474,13 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
         {isWaiting && <WaitingBar roomId={room.roomId} />}
 
-        {connectionStatus === 'connecting' && !isWaiting && (
-          <div className="waiting-bar">
-            <span className="waiting-text">Connecting to opponent…</span>
-          </div>
+        {!isIdle && !isWaiting && !isEnded && (
+          <ConnectionBar
+            status={transportStatus}
+            stats={transportStats}
+            onRetry={handleRetryConnection}
+            onNewGame={handleNewRoom}
+          />
         )}
 
         {isEnded && room.result && (

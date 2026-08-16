@@ -645,6 +645,18 @@ button {
   animation: pulse-waiting 1.2s ease-in-out infinite;
 }
 
+.status-dot.danger {
+  background: var(--accent-danger);
+}
+
+.status-dot.warning {
+  background: var(--accent-arrow);
+}
+
+.status-dot.relay {
+  background: oklch(0.75 0.14 200);
+}
+
 @keyframes pulse-waiting {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
