@@ -361,19 +361,18 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     [engine]
   );
 
-  // Dynamic viewport-proportional board size
+  // Dynamic viewport-proportional board size (~80% viewport dominance)
   useEffect(() => {
     const computeBoardSize = () => {
       const vh = window.innerHeight;
       const vw = window.innerWidth;
 
-      // Available vertical space for optimal instrument proportion (74-88% vh)
-      const verticalReserved = 160;
-      const maxFromHeight = Math.floor((vh - verticalReserved) * 0.94);
-      const maxFromWidth = Math.min(vw - 32, 680);
+      const verticalReserved = 100;
+      const maxFromHeight = Math.floor(vh - verticalReserved);
+      const maxFromWidth = vw - 32;
 
       const size = Math.min(maxFromHeight, maxFromWidth);
-      const clamped = Math.max(280, Math.min(size, 680));
+      const clamped = Math.max(280, Math.min(size, 860));
 
       document.documentElement.style.setProperty('--board-size', `${clamped}px`);
     };

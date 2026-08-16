@@ -1,36 +1,53 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import type { TimeControl, RoomStatus, GameResult } from '@/types/chess';
+import type { TimeControl, GameResult } from '@/types/chess';
 import { TIME_CONTROLS } from '@/types/chess';
 
 interface SetupControlsProps {
   selectedTC: TimeControl;
   onSelectTC: (tc: TimeControl) => void;
   onCreateRoom: () => void;
+  statusText?: string;
 }
 
-export function SetupControls({ selectedTC, onSelectTC, onCreateRoom }: SetupControlsProps) {
+export function SetupControls({
+  selectedTC,
+  onSelectTC,
+  onCreateRoom,
+  statusText = 'P2P DIRECT',
+}: SetupControlsProps) {
   return (
-    <div className="setup-controls" role="group" aria-label="Game setup">
-      {TIME_CONTROLS.map((tc) => (
-        <button
-          key={tc.label}
-          className={`tc-button ${selectedTC.label === tc.label ? 'active' : ''}`}
-          onClick={() => onSelectTC(tc)}
-          aria-pressed={selectedTC.label === tc.label}
-          aria-label={`Time control ${tc.label}`}
-        >
-          {tc.label}
-        </button>
-      ))}
+    <div className="control-strip" role="group" aria-label="Instrument control strip">
+      {/* Presets segment */}
+      <div className="control-segment-tc">
+        {TIME_CONTROLS.map((tc) => (
+          <button
+            key={tc.label}
+            className={`tc-item ${selectedTC.label === tc.label ? 'active' : ''}`}
+            onClick={() => onSelectTC(tc)}
+            aria-pressed={selectedTC.label === tc.label}
+            aria-label={`Time control ${tc.label}`}
+          >
+            {tc.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Primary Action */}
       <button
-        className="create-button"
+        className="control-action-create"
         onClick={onCreateRoom}
         aria-label="Create room"
       >
         Create room
       </button>
+
+      {/* Utility Status indicator */}
+      <div className="control-status" title="WebRTC Direct Mesh Ready">
+        <span className="status-dot" />
+        <span className="status-label">{statusText}</span>
+      </div>
     </div>
   );
 }
@@ -49,7 +66,6 @@ export function WaitingBar({ roomId }: WaitingBarProps) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
       const input = document.createElement('input');
       input.value = url;
       document.body.appendChild(input);
@@ -62,14 +78,17 @@ export function WaitingBar({ roomId }: WaitingBarProps) {
   }, [roomId]);
 
   return (
-    <div className="waiting-bar">
-      <span className="waiting-text">Waiting for opponent</span>
+    <div className="control-strip waiting-strip">
+      <div className="waiting-info">
+        <span className="status-dot waiting" />
+        <span className="waiting-text">Awaiting Opponent</span>
+      </div>
       <button
-        className={`copy-button ${copied ? 'copied' : ''}`}
+        className={`control-action-copy ${copied ? 'copied' : ''}`}
         onClick={handleCopy}
         aria-label="Copy room link"
       >
-        {copied ? 'Copied' : 'Copy link'}
+        {copied ? 'Link Copied' : 'Copy Room Link'}
       </button>
     </div>
   );
@@ -87,7 +106,7 @@ function resultText(result: GameResult): { main: string; detail: string } {
     case 'checkmate':
       return {
         main: 'Checkmate',
-        detail: `${result.winner === 'w' ? 'White' : 'Black'} wins`,
+        detail: `${result.winner === 'w' ? 'White' : 'Black'} won`,
       };
     case 'stalemate':
       return { main: 'Stalemate', detail: 'Draw' };
@@ -102,12 +121,12 @@ function resultText(result: GameResult): { main: string; detail: string } {
     case 'resignation':
       return {
         main: 'Resignation',
-        detail: `${result.winner === 'w' ? 'White' : 'Black'} wins`,
+        detail: `${result.winner === 'w' ? 'White' : 'Black'} won`,
       };
     case 'timeout':
       return {
         main: 'Time out',
-        detail: `${result.winner === 'w' ? 'White' : 'Black'} wins`,
+        detail: `${result.winner === 'w' ? 'White' : 'Black'} won`,
       };
   }
 }
@@ -126,17 +145,24 @@ export function GameEndBar({ result, onRematch, onNewRoom, pgn }: GameEndBarProp
   }, [pgn]);
 
   return (
-    <div className="game-end">
-      <div className="game-end-result">{main}</div>
-      <div className="game-end-detail">{detail}</div>
-      <div className="game-end-actions">
-        <button className="primary" onClick={onRematch}>Rematch</button>
+    <div className="control-strip end-strip">
+      <div className="game-end-summary">
+        <span className="end-main">{main}</span>
+        <span className="end-divider">/</span>
+        <span className="end-detail">{detail}</span>
+      </div>
+      <div className="end-actions">
+        <button className="control-action-rematch" onClick={onRematch}>
+          Rematch
+        </button>
         {pgn && (
-          <button onClick={handleCopyPgn}>
-            {copiedPgn ? 'Copied' : 'Copy PGN'}
+          <button className="control-action-pgn" onClick={handleCopyPgn}>
+            {copiedPgn ? 'PGN Copied' : 'Copy PGN'}
           </button>
         )}
-        <button onClick={onNewRoom}>New room</button>
+        <button className="control-action-new" onClick={onNewRoom}>
+          New Game
+        </button>
       </div>
     </div>
   );
