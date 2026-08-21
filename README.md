@@ -11,12 +11,13 @@
 
 ## Overview
 
-**VEYRN Chess** is a modern web-based chess instrument engineered to eliminate platform friction and visual clutter. It combines a multilingual launch page, manufactured-mineral board, direct browser-to-browser rooms, and a detailed behavioral telemetry ledger stored only in the player's browser — with zero accounts, trackers, or paywalls.
+**VEYRN Chess** is a modern web-based chess instrument engineered to eliminate platform friction and visual clutter. It combines a multilingual launch page, manufactured-mineral board, direct browser-to-browser rooms, optional Lichess matchmaking, and a detailed behavioral telemetry ledger stored only in the player's browser — with no VEYRN account, trackers, or paywalls.
 
 ### Key Highlights
 
 - **Free & Universal Access**: Instant games with no registration or paywalls required.
 - **P2P WebRTC Multiplayer**: A first-party serverless signaling route negotiates an encrypted browser-to-browser WebRTC DataChannel, typically in well under one second.
+- **Lichess Board API Client**: Optional OAuth PKCE login finds a casual 10+0 opponent on Lichess while moves, clocks, resignation, and the finished PGN remain inside the VEYRN board.
 - **Real Waitlist & SVG Country Flags**: Unique email registrations persist in Upstash Redis, while country is detected from IP, synchronized between peers, and remains manually overridable without a VEYRN profile.
 - **Private Precision Ledger**: Completed games generate local decision-rhythm, phase-tempo, move-grammar, opening, clock, and network metrics.
 - **Obsidian Instrument Aesthetic**: High-contrast, mathematically calibrated OKLCH color palette (Warm Mineral & Deep Cool Slate) with a micro-3D milled board perimeter.
@@ -61,6 +62,7 @@ VEYRN.ru/
 │   ├── engine/
 │   │   ├── GameEngine.ts                 # Chess Domain Coordinator (chess.js wrapper)
 │   │   └── SoundEngine.ts                # Web Audio Procedural Synthesis
+│   ├── lib/lichess.ts                     # OAuth PKCE + official Lichess Board API client
 │   ├── transport/
 │   │   └── GameTransport.ts              # WebRTC transport + serverless negotiation
 │   └── types/
@@ -81,6 +83,7 @@ VEYRN.ru/
 - **Language**: TypeScript 5 (Strict Mode)
 - **Domain Engine**: `chess.js` 1.4.0 (Full FIDE Rule Compliance, PGN Generation, En Passant, Castling, 50-Move & Threefold Draw Detection)
 - **Multiplayer Transport**: WebRTC DataChannels with first-party serverless signaling and optional TURN fallback
+- **Public Matchmaking**: Official Lichess Board API with browser-side OAuth 2.0 PKCE; casual rapid 10+0 only
 - **Production Storage**: Upstash Redis for signaling messages and unique waitlist registrations
 - **Acoustics**: Web Audio API (Synthesized BiquadFilters, stereo spatial panning, sub-bass oscillator transients)
 - **Styling**: Vanilla CSS with CSS Custom Properties and OKLCH color space
@@ -89,14 +92,15 @@ VEYRN.ru/
 
 ## Launch Roadmap & Milestone
 
-VEYRN is launch-ready for invite-link games; the public waitlist is collecting demand for native matchmaking.
+VEYRN is launch-ready for invite-link games and optional Lichess rapid matchmaking; the public waitlist is collecting demand for native VEYRN matchmaking.
 
 - [x] **Phase 1**: Core Chess Engine & Domain Logic (26/26 Tests Passing)
 - [x] **Phase 2**: Dual-Channel WebRTC P2P Transport & Session Recovery
 - [x] **Phase 3**: Obsidian Instrument Design System & Hardware Drag Engine
 - [x] **Phase 4**: Right-Click Planning Vector Layer & Raycast-Style Control Strip
 - [x] **Phase 5 (Launch Platform)**: Multilingual landing page, private player telemetry, and database-free P2P room discovery.
-- [ ] **Phase 6**: Engine Analysis integration (Stockfish 17 via WebAssembly) & opening book explorer.
+- [x] **Phase 6**: Official Lichess Board API client with OAuth PKCE, casual rapid search, clock synchronization, premoves, results, and local statistics.
+- [ ] **Phase 7**: Engine Analysis integration (Stockfish 17 via WebAssembly) & opening book explorer.
 
 ---
 
@@ -149,6 +153,9 @@ npx tsx scripts/test-signaling.ts
 
 # Run full automated Playwright dual-client E2E test
 npx tsx scripts/test-two-clients.ts
+
+# Run the mocked Lichess OAuth, seek, move, clock, result, and ledger flow
+npx tsx scripts/test-lichess-client.ts
 ```
 
 ### Production Build

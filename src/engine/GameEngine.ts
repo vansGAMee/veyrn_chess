@@ -418,6 +418,62 @@ export class GameEngine {
     }
   }
 
+  syncExternalGame({
+    roomId,
+    moves,
+    playerColor,
+    timeControl,
+    whiteTime,
+    blackTime,
+    status,
+    result,
+  }: {
+    roomId: string;
+    moves: string[];
+    playerColor: Color;
+    timeControl: TimeControl;
+    whiteTime: number;
+    blackTime: number;
+    status: 'playing' | 'ended';
+    result: GameResult | null;
+  }): MoveIntent | null {
+    const queuedPremove = this.premove;
+    this.stopClock();
+    this.chess.reset();
+
+    for (const uci of moves) {
+      const from = uci.slice(0, 2) as Square;
+      const to = uci.slice(2, 4) as Square;
+      const promotion = uci[4];
+      this.chess.move({ from, to, promotion: promotion || undefined });
+    }
+
+    const lastUci = moves[moves.length - 1];
+    this.lastMove = lastUci
+      ? { from: lastUci.slice(0, 2) as Square, to: lastUci.slice(2, 4) as Square }
+      : null;
+    this.roomId = roomId;
+    this.roomStatus = status;
+    this.playerColor = playerColor;
+    this.timeControl = timeControl;
+    this.whiteTime = Math.max(0, whiteTime);
+    this.blackTime = Math.max(0, blackTime);
+    this.result = result;
+    this.selectedSquare = null;
+    this.premove = status === 'playing' ? queuedPremove : null;
+
+    if (status === 'playing') this.startClock();
+
+    if (this.premove && this.chess.turn() === playerColor) {
+      const premove = this.premove;
+      this.premove = null;
+      if (this.tryMove(premove)) return premove;
+    }
+
+    this.notify();
+    return null;
+  }
+
   resign() {
     if (this.roomStatus !== 'playing' || !this.playerColor) return;
     const winner = this.playerColor === 'w' ? 'b' : 'w';

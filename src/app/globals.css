@@ -732,6 +732,9 @@ button {
   min-height: 38px;
   padding: 0 12px;
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
   align-items: center;
   border: 1px solid var(--board-edge-line);
   border-radius: 3px;
@@ -739,6 +742,15 @@ button {
 }
 
 .control-secondary-link:hover { color: var(--text-primary); }
+.control-secondary-link small {
+  font-size: 7px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.control-secondary-link:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
 
 .control-status {
   display: flex;

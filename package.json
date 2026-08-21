@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@bity/oauth2-auth-code-pkce": "^2.13.0",
     "@upstash/redis": "^1.38.2",
     "chess.js": "^1.4.0",
     "country-flag-icons": "^1.6.20",

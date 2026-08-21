@@ -9,6 +9,9 @@ interface SetupControlsProps {
   selectedTC: TimeControl;
   onSelectTC: (tc: TimeControl) => void;
   onCreateRoom: () => void;
+  onPlayLichess: () => void;
+  lichessStatus: 'checking' | 'idle' | 'authorizing' | 'searching' | 'playing' | 'error';
+  lichessUser?: string | null;
   statusText?: string;
 }
 
@@ -16,6 +19,9 @@ export function SetupControls({
   selectedTC,
   onSelectTC,
   onCreateRoom,
+  onPlayLichess,
+  lichessStatus,
+  lichessUser,
   statusText = 'P2P DIRECT',
 }: SetupControlsProps) {
   const controlNames: Record<string, string> = {
@@ -57,15 +63,21 @@ export function SetupControls({
         >
           CREATE PRIVATE ROOM <span>↗</span>
         </button>
-        <a
+        <button
+          type="button"
           className="control-secondary-link"
-          href="https://lichess.org/"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Найти соперника на Lichess в новой вкладке"
+          onClick={onPlayLichess}
+          disabled={lichessStatus === 'checking' || lichessStatus === 'authorizing'}
+          aria-label="Play a casual 10+0 game on Lichess inside VEYRN"
         >
-          NO FRIEND? OPEN LICHESS ↗
-        </a>
+          <span>
+            {lichessStatus === 'checking' && 'CHECKING LICHESS…'}
+            {lichessStatus === 'authorizing' && 'OPENING LICHESS…'}
+            {lichessStatus === 'searching' && 'SEARCHING 10+0…'}
+            {(lichessStatus === 'idle' || lichessStatus === 'playing' || lichessStatus === 'error') && 'PLAY ON LICHESS · 10+0'}
+          </span>
+          <small>{lichessUser ? `@${lichessUser}` : 'OFFICIAL BOARD API'}</small>
+        </button>
       </div>
     </div>
   );
@@ -186,6 +198,8 @@ interface GameEndBarProps {
   onRematch: () => void;
   onNewRoom: () => void;
   pgn?: string;
+  rematchLabel?: string;
+  newRoomLabel?: string;
 }
 
 function resultText(result: GameResult): { main: string; detail: string } {
@@ -218,7 +232,14 @@ function resultText(result: GameResult): { main: string; detail: string } {
   }
 }
 
-export function GameEndBar({ result, onRematch, onNewRoom, pgn }: GameEndBarProps) {
+export function GameEndBar({
+  result,
+  onRematch,
+  onNewRoom,
+  pgn,
+  rematchLabel = 'REMATCH',
+  newRoomLabel = 'NEW ROOM',
+}: GameEndBarProps) {
   const { main, detail } = resultText(result);
   const [copiedPgn, setCopiedPgn] = useState(false);
 
@@ -242,10 +263,10 @@ export function GameEndBar({ result, onRematch, onNewRoom, pgn }: GameEndBarProp
         </div>
         <div className="end-actions">
           <button className="control-action-rematch" onClick={onRematch}>
-            REMATCH <span>↗</span>
+            {rematchLabel} <span>↗</span>
           </button>
           <button className="control-action-new" onClick={onNewRoom}>
-            NEW ROOM
+            {newRoomLabel}
           </button>
           {pgn && (
             <button className="control-action-pgn" onClick={handleCopyPgn}>
@@ -254,6 +275,41 @@ export function GameEndBar({ result, onRematch, onNewRoom, pgn }: GameEndBarProp
           )}
         </div>
         <a className="result-stats-link" href="/stats">OPEN BEHAVIORAL REPORT →</a>
+      </div>
+    </div>
+  );
+}
+
+interface LichessWaitingBarProps {
+  status: 'searching' | 'connecting' | 'error';
+  error?: string | null;
+  onCancel: () => void;
+  onRetry: () => void;
+}
+
+export function LichessWaitingBar({
+  status,
+  error,
+  onCancel,
+  onRetry,
+}: LichessWaitingBarProps) {
+  const label = status === 'searching'
+    ? 'Lichess: searching casual 10+0'
+    : status === 'connecting'
+      ? 'Lichess: opponent found, opening board'
+      : error || 'Lichess connection failed';
+
+  return (
+    <div className="control-strip waiting-strip waiting-bar" role="status">
+      <div className="waiting-info">
+        <span className={`status-dot ${status === 'error' ? 'danger' : 'waiting'}`} />
+        <span className="waiting-text">{label}</span>
+      </div>
+      <div className="end-actions">
+        {status === 'error' && (
+          <button className="control-action-rematch" onClick={onRetry}>Retry</button>
+        )}
+        <button className="control-action-new" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );

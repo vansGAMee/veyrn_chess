@@ -9,13 +9,21 @@ import {
   type TransportStats,
 } from '@/transport/GameTransport';
 import { P2PGameTransport } from '@/transport/GameTransport';
-import type { TimeControl, MoveIntent, RoomStatus } from '@/types/chess';
+import type { TimeControl, MoveIntent, RoomStatus, GameResult } from '@/types/chess';
 import type { Color, Square } from '@/types/chess';
 import { TIME_CONTROLS } from '@/types/chess';
 import type { GameMessagePayload } from '@/types/protocol';
 import { createGameRecord, saveGameRecord } from '@/lib/gameStats';
 import { normalizeCountryCode } from '@/lib/countries';
 import { useCountry } from '@/lib/useCountry';
+import {
+  LichessBoardClient,
+  splitUciMoves,
+  type LichessAccount,
+  type LichessGameStart,
+  type LichessGameState,
+  type LichessStreamMessage,
+} from '@/lib/lichess';
 import { CountrySelect } from '@/components/CountrySelect';
 import { CountryFlag } from '@/components/CountryFlag';
 import { Chessboard } from '@/components/Chessboard';
@@ -23,6 +31,7 @@ import { Clock } from '@/components/Clock';
 import {
   SetupControls,
   WaitingBar,
+  LichessWaitingBar,
   GameEndBar,
   ConnectionBar,
 } from '@/components/GameControls';
@@ -50,14 +59,36 @@ interface GamePageProps {
   isJoining?: boolean;
 }
 
+const LICHESS_TIME_CONTROL = TIME_CONTROLS.find((tc) => tc.label === '10+0')!;
+
+function lichessResult(state: LichessGameState): GameResult | null {
+  if (state.status === 'started') return null;
+
+  const winner: Color | undefined = state.winner === 'white'
+    ? 'w'
+    : state.winner === 'black'
+      ? 'b'
+      : undefined;
+
+  if (state.status === 'mate' && winner) return { type: 'checkmate', winner };
+  if (state.status === 'stalemate') return { type: 'stalemate' };
+  if (state.status === 'resign' && winner) return { type: 'resignation', winner };
+  if ((state.status === 'timeout' || state.status === 'outoftime') && winner) {
+    return { type: 'timeout', winner };
+  }
+  return { type: 'draw', reason: 'agreement' };
+}
+
 function PlayerIdentity({
   country,
   color,
+  name,
   isLocal = false,
   active = false,
 }: {
   country: string | null;
   color: Color;
+  name?: string | null;
   isLocal?: boolean;
   active?: boolean;
 }) {
@@ -67,7 +98,7 @@ function PlayerIdentity({
         <CountryFlag code={country} />
       </span>
       <span className="player-identity-copy">
-        <strong>{country || '—'}</strong>
+        <strong>{name || country || '—'}</strong>
         <small>{color === 'w' ? 'White' : 'Black'} / {isLocal ? 'You' : 'Opponent'}</small>
       </span>
     </span>
@@ -96,7 +127,23 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   const [isHostRole, setIsHostRole] = useState<boolean>(!isJoining);
   const [isZen, setIsZen] = useState(false);
   const [opponentCountry, setOpponentCountry] = useState<string | null>(null);
+  const [opponentName, setOpponentName] = useState<string | null>(null);
+  const [gameMode, setGameMode] = useState<'p2p' | 'lichess'>('p2p');
+  const [lichessStatus, setLichessStatus] = useState<
+    'checking' | 'idle' | 'authorizing' | 'searching' | 'connecting' | 'playing' | 'error'
+  >('checking');
+  const [lichessUser, setLichessUser] = useState<string | null>(null);
+  const [lichessError, setLichessError] = useState<string | null>(null);
   const { country, setCountry, ready: countryReady } = useCountry();
+  const lichessClientRef = useRef<LichessBoardClient | null>(null);
+  const lichessInitRef = useRef<Promise<{
+    account: LichessAccount | null;
+    returnedFromAuth: boolean;
+  }> | null>(null);
+  const lichessAccountRef = useRef<LichessAccount | null>(null);
+  const lichessGameIdRef = useRef('');
+  const lichessColorRef = useRef<Color>('w');
+  const latestLichessStateRef = useRef<LichessGameState | null>(null);
   const zenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoJoinInitiatedRef = useRef(false);
   const teardownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,8 +319,181 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     [country, engine]
   );
 
+  const syncLichessBoard = useCallback((remoteState: LichessGameState) => {
+    return engine.syncExternalGame({
+      roomId: lichessGameIdRef.current,
+      moves: splitUciMoves(remoteState.moves),
+      playerColor: lichessColorRef.current,
+      timeControl: LICHESS_TIME_CONTROL,
+      whiteTime: remoteState.wtime / 100,
+      blackTime: remoteState.btime / 100,
+      status: remoteState.status === 'started' ? 'playing' : 'ended',
+      result: lichessResult(remoteState),
+    });
+  }, [engine]);
+
+  const failLichess = useCallback((error: Error) => {
+    if (error.name === 'AbortError') return;
+    setLichessError(error.message || 'Lichess connection failed.');
+    setLichessStatus('error');
+  }, []);
+
+  const handleLichessState = useCallback((remoteState: LichessGameState) => {
+    const previous = latestLichessStateRef.current;
+    const previousMoves = previous ? splitUciMoves(previous.moves) : [];
+    const moves = splitUciMoves(remoteState.moves);
+    latestLichessStateRef.current = remoteState;
+
+    const executedPremove = syncLichessBoard(remoteState);
+    const isPlayingRemote = remoteState.status === 'started';
+    setLichessStatus(isPlayingRemote ? 'playing' : 'idle');
+    setLichessError(null);
+
+    if (!previous && isPlayingRemote) playGameStartSound();
+
+    if (moves.length > previousMoves.length) {
+      const mover: Color = moves.length % 2 === 1 ? 'w' : 'b';
+      if (mover !== lichessColorRef.current) {
+        const last = moves[moves.length - 1];
+        if (engine.getState().board.isCheck) playCheckSound();
+        else playMoveSound(last.slice(2, 4) as Square);
+      }
+    }
+
+    if (executedPremove && lichessClientRef.current && lichessGameIdRef.current) {
+      const uci = `${executedPremove.from}${executedPremove.to}${executedPremove.promotion || ''}`;
+      void lichessClientRef.current.move(lichessGameIdRef.current, uci).catch((error: unknown) => {
+        syncLichessBoard(remoteState);
+        failLichess(error instanceof Error ? error : new Error('Lichess rejected the premove.'));
+      });
+      playMoveSound(executedPremove.to);
+    }
+
+    if (previous?.status === 'started' && !isPlayingRemote) {
+      playGameEndSound();
+    }
+  }, [engine, failLichess, syncLichessBoard]);
+
+  const handleLichessStream = useCallback((message: LichessStreamMessage) => {
+    if (message.type === 'gameFull') {
+      if (message.initialFen !== 'startpos') {
+        failLichess(new Error('VEYRN supports standard Lichess games only.'));
+        return;
+      }
+
+      const opponent = lichessColorRef.current === 'w' ? message.black : message.white;
+      const name = opponent.name || opponent.id || 'Lichess player';
+      setOpponentName(name);
+      void lichessClientRef.current?.countryOf(name).then((code) => {
+        setOpponentCountry(normalizeCountryCode(code));
+      });
+      handleLichessState(message.state);
+      return;
+    }
+
+    handleLichessState(message);
+  }, [failLichess, handleLichessState]);
+
+  const handleLichessGameStart = useCallback((event: LichessGameStart) => {
+    const color: Color = event.game.color === 'white' ? 'w' : 'b';
+    lichessGameIdRef.current = event.game.id;
+    lichessColorRef.current = color;
+    latestLichessStateRef.current = null;
+    setActiveRoomId(event.game.id);
+    setOpponentName(event.game.opponent.username || event.game.opponent.id || 'Lichess player');
+    setLichessStatus('connecting');
+
+    void lichessClientRef.current
+      ?.openGame(event.game.id, handleLichessStream, failLichess)
+      .catch((error: unknown) => {
+        failLichess(error instanceof Error ? error : new Error('Could not open the Lichess game.'));
+      });
+  }, [failLichess, handleLichessStream]);
+
+  const beginLichessSeek = useCallback(async () => {
+    const client = lichessClientRef.current;
+    if (!client || !lichessAccountRef.current) {
+      failLichess(new Error('Lichess login is required.'));
+      return;
+    }
+
+    initAudioOnGesture();
+    transportRef.current?.disconnect();
+    transportRef.current = null;
+    setTransportStatus('idle');
+    setTransportStats(null);
+    setGameMode('lichess');
+    setSelectedTC(LICHESS_TIME_CONTROL);
+    setOpponentCountry(null);
+    setOpponentName(null);
+    setLichessError(null);
+    setLichessStatus('searching');
+    lichessGameIdRef.current = '';
+    latestLichessStateRef.current = null;
+    engine.setTimeControl(LICHESS_TIME_CONTROL);
+    engine.createRoom('lichess');
+
+    try {
+      await client.startRapidSeek(handleLichessGameStart, failLichess);
+    } catch (error) {
+      failLichess(error instanceof Error ? error : new Error('Could not start Lichess search.'));
+    }
+  }, [engine, failLichess, handleLichessGameStart]);
+
+  useEffect(() => {
+    if (!lichessClientRef.current) {
+      lichessClientRef.current = new LichessBoardClient(`${window.location.origin}/play`);
+      lichessInitRef.current = lichessClientRef.current.initialize();
+    }
+
+    let active = true;
+    void lichessInitRef.current
+      ?.then(({ account }) => {
+        if (!active) return;
+        lichessAccountRef.current = account;
+        setLichessUser(account?.username || null);
+        setLichessStatus('idle');
+
+        if (account && sessionStorage.getItem('veyrn:lichess-seek') === '1') {
+          sessionStorage.removeItem('veyrn:lichess-seek');
+          void beginLichessSeek();
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        sessionStorage.removeItem('veyrn:lichess-seek');
+        failLichess(error instanceof Error ? error : new Error('Lichess login failed.'));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [beginLichessSeek, failLichess]);
+
+  const handlePlayLichess = useCallback(() => {
+    const client = lichessClientRef.current;
+    if (!client || lichessStatus === 'checking' || lichessStatus === 'authorizing') return;
+
+    if (!lichessAccountRef.current) {
+      sessionStorage.setItem('veyrn:lichess-seek', '1');
+      setLichessStatus('authorizing');
+      void client.authorize().catch((error: unknown) => {
+        sessionStorage.removeItem('veyrn:lichess-seek');
+        failLichess(error instanceof Error ? error : new Error('Lichess login failed.'));
+      });
+      return;
+    }
+
+    void beginLichessSeek();
+  }, [beginLichessSeek, failLichess, lichessStatus]);
+
   const handleCreateRoom = useCallback(() => {
     initAudioOnGesture();
+    lichessClientRef.current?.close();
+    setGameMode('p2p');
+    setLichessStatus('idle');
+    setLichessError(null);
+    setOpponentName(null);
     const roomId = generateRoomId();
     setActiveRoomId(roomId);
     setIsHostRole(true);
@@ -291,6 +511,11 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   const handleJoinRoom = useCallback(
     (roomId: string) => {
       initAudioOnGesture();
+      lichessClientRef.current?.close();
+      setGameMode('p2p');
+      setLichessStatus('idle');
+      setLichessError(null);
+      setOpponentName(null);
       setActiveRoomId(roomId);
       setIsHostRole(false);
 
@@ -361,7 +586,13 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
         setTimeout(() => playGameEndSound(), 220);
       }
 
-      if (transportRef.current && transportRef.current.isConnected()) {
+      if (gameMode === 'lichess' && lichessGameIdRef.current && lichessClientRef.current) {
+        const uci = `${intent.from}${intent.to}${intent.promotion || ''}`;
+        void lichessClientRef.current.move(lichessGameIdRef.current, uci).catch((error: unknown) => {
+          if (latestLichessStateRef.current) syncLichessBoard(latestLichessStateRef.current);
+          failLichess(error instanceof Error ? error : new Error('Lichess rejected the move.'));
+        });
+      } else if (transportRef.current && transportRef.current.isConnected()) {
         const times = engine.getCurrentTime();
         const myColor = engine.getPlayerColor();
         const myClock = myColor === 'w' ? times.white : times.black;
@@ -376,7 +607,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       }
     }
     return success;
-  }, [engine]);
+  }, [engine, failLichess, gameMode, syncLichessBoard]);
 
   const handleSelect = useCallback(
     (square: Square | null) => {
@@ -398,31 +629,66 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   }, [engine]);
 
   const handleRematch = useCallback(() => {
+    if (gameMode === 'lichess') {
+      void beginLichessSeek();
+      return;
+    }
     if (transportRef.current) {
       transportRef.current.send({ type: 'rematch-offer' });
     }
-  }, []);
+  }, [beginLichessSeek, gameMode]);
 
   const handleResign = useCallback(() => {
+    if (gameMode === 'lichess') {
+      const client = lichessClientRef.current;
+      const gameId = lichessGameIdRef.current;
+      if (client && gameId) {
+        void client.resign(gameId).catch((error: unknown) => {
+          failLichess(error instanceof Error ? error : new Error('Lichess resignation failed.'));
+        });
+      }
+      return;
+    }
     if (transportRef.current) {
       transportRef.current.send({ type: 'resign' });
     }
     engine.resign();
     playGameEndSound();
-  }, [engine]);
+  }, [engine, failLichess, gameMode]);
 
   const handleNewRoom = useCallback(() => {
     if (transportRef.current) {
       transportRef.current.disconnect();
       transportRef.current = null;
     }
+    lichessClientRef.current?.close();
+    lichessGameIdRef.current = '';
+    latestLichessStateRef.current = null;
     setTransportStatus('idle');
     setTransportStats(null);
+    setGameMode('p2p');
+    setLichessStatus('idle');
+    setLichessError(null);
     setActiveRoomId('');
     setOpponentCountry(null);
+    setOpponentName(null);
     window.history.pushState({}, '', '/play');
     engine.resetToIdle();
   }, [engine]);
+
+  const handleRetryLichess = useCallback(() => {
+    const client = lichessClientRef.current;
+    const gameId = lichessGameIdRef.current;
+    if (client && gameId && engine.getState().room.status === 'playing') {
+      setLichessError(null);
+      setLichessStatus('connecting');
+      void client.openGame(gameId, handleLichessStream, failLichess).catch((error: unknown) => {
+        failLichess(error instanceof Error ? error : new Error('Could not reconnect to Lichess.'));
+      });
+      return;
+    }
+    void beginLichessSeek();
+  }, [beginLichessSeek, engine, failLichess, handleLichessStream]);
 
   const handleSelectTC = useCallback(
     (tc: TimeControl) => {
@@ -463,15 +729,23 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     }
     return () => {
       transportRef.current?.disconnect();
-      teardownTimerRef.current = setTimeout(() => engine.destroy(), 0);
+      teardownTimerRef.current = setTimeout(() => {
+        lichessClientRef.current?.close();
+        engine.destroy();
+      }, 0);
     };
   }, [engine]);
 
   const { board, room, premove } = state;
   const isPlaying = room.status === 'playing';
   const isEnded = room.status === 'ended';
-  const isWaiting = room.status === 'waiting' && transportStatus === 'waiting';
+  const isWaiting = gameMode === 'p2p' && room.status === 'waiting' && transportStatus === 'waiting';
   const isIdle = room.status === 'idle';
+  const showLichessStatus = gameMode === 'lichess' && !isEnded && (
+    lichessStatus === 'searching' ||
+    lichessStatus === 'connecting' ||
+    lichessStatus === 'error'
+  );
 
   // In idle mode, player is White by default but can move both sides
   const playerColor: Color = room.playerColor || (isIdle ? 'w' : 'w');
@@ -531,12 +805,17 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       <nav className="instrument-nav" aria-label="Platform navigation">
         <Link href="/" aria-label="VEYRN home">V</Link>
         <Link href="/stats">STAT</Link>
-        <span>LIVE / P2P</span>
+        <span>{gameMode === 'lichess' ? 'LIVE / LICHESS' : 'LIVE / P2P'}</span>
         <CountrySelect value={country} onChange={setCountry} compact />
       </nav>
       {/* Top Player Row */}
       <div className="player-row">
-        <PlayerIdentity country={opponentCountry} color={topColor} active={topActive} />
+        <PlayerIdentity
+          country={opponentCountry}
+          color={topColor}
+          name={opponentName}
+          active={topActive}
+        />
         <Clock time={topTime} active={topActive} />
       </div>
 
@@ -555,7 +834,13 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       {/* Bottom Player Row */}
       <div className="player-row">
         <div className="player-local-actions">
-          <PlayerIdentity country={country} color={bottomColor} isLocal active={bottomActive} />
+          <PlayerIdentity
+            country={country}
+            color={bottomColor}
+            name={gameMode === 'lichess' ? lichessUser : null}
+            isLocal
+            active={bottomActive}
+          />
           {isPlaying && (
             <button
               onClick={handleResign}
@@ -577,12 +862,24 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
             selectedTC={selectedTC}
             onSelectTC={handleSelectTC}
             onCreateRoom={handleCreateRoom}
+            onPlayLichess={handlePlayLichess}
+            lichessStatus={lichessStatus === 'connecting' ? 'searching' : lichessStatus}
+            lichessUser={lichessUser}
           />
         )}
 
         {isWaiting && <WaitingBar roomId={room.roomId} />}
 
-        {!isIdle && !isWaiting && !isEnded && (
+        {showLichessStatus && (
+          <LichessWaitingBar
+            status={lichessStatus === 'error' ? 'error' : lichessStatus}
+            error={lichessError}
+            onCancel={handleNewRoom}
+            onRetry={handleRetryLichess}
+          />
+        )}
+
+        {gameMode === 'p2p' && !isIdle && !isWaiting && !isEnded && (
           <ConnectionBar
             status={transportStatus}
             stats={transportStats}
@@ -597,6 +894,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
             onRematch={handleRematch}
             onNewRoom={handleNewRoom}
             pgn={engine.getPgn()}
+            rematchLabel={gameMode === 'lichess' ? 'FIND NEXT' : 'REMATCH'}
+            newRoomLabel={gameMode === 'lichess' ? 'PRIVATE ROOM' : 'NEW ROOM'}
           />
         )}
       </div>
