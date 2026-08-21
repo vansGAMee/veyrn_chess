@@ -4,7 +4,7 @@ async function runTwoClientE2ETest() {
   console.log('─── VEYRN TWO-CLIENT E2E BROWSER TEST ───\n');
 
   const port = process.env.PORT || '3000';
-  const baseUrl = `http://localhost:${port}`;
+  const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
 
   const browser = await chromium.launch({ headless: true });
 

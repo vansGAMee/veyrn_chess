@@ -82,9 +82,6 @@ export async function getRoomMessages(
         return { ok: true, messages: [] };
       }
 
-      // Refresh room TTL on activity
-      await redis.expire(key, ROOM_TTL_SECONDS);
-
       const parsed: SignalMessage[] = rawList
         .map((item) => {
           if (typeof item === 'string') {
@@ -179,9 +176,12 @@ export async function addRoomMessage(
     try {
       const serialized = JSON.stringify(message);
       // Append message and cap list length
-      await redis.rpush(key, serialized);
-      await redis.ltrim(key, -MAX_MESSAGES_PER_ROOM, -1);
-      await redis.expire(key, ROOM_TTL_SECONDS);
+      await redis
+        .pipeline()
+        .rpush(key, serialized)
+        .ltrim(key, -MAX_MESSAGES_PER_ROOM, -1)
+        .expire(key, ROOM_TTL_SECONDS)
+        .exec();
 
       return { ok: true, id: message.id, timestamp: message.timestamp };
     } catch (err) {

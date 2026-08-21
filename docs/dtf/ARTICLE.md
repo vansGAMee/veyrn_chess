@@ -57,7 +57,9 @@ PGN, тайминги и результаты остаются в localStorage �
 - мобильный экран 390×844: квадратная доска, контролы 44px+ и отсутствие горизонтального скролла;
 - production-сборка Next.js и строгая проверка TypeScript.
 
-Проект открыт: [github.com/vansGAMee/veyrn_chess](https://github.com/vansGAMee/veyrn_chess)
+Играть: [veyrn-chess.vercel.app](https://veyrn-chess.vercel.app)
+
+Исходный код: [github.com/vansGAMee/veyrn_chess](https://github.com/vansGAMee/veyrn_chess)
 
 Мне особенно полезны ответы на три вопроса: насколько быстро соединились два устройства, понятна ли статистика без объяснений и чего вам не хватает для второй партии.
 

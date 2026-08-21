@@ -148,6 +148,7 @@ export class P2PGameTransport implements GameTransport {
   private stats: TransportStats | null = null;
   private isHost: boolean = false;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private isPolling: boolean = false;
   private statsInterval: ReturnType<typeof setInterval> | null = null;
   private broadcastChannel: BroadcastChannel | null = null;
   private lastPollTimestamp: number = 0;
@@ -410,12 +411,13 @@ export class P2PGameTransport implements GameTransport {
     this.lastPollTimestamp = Date.now() - 60000;
 
     const poll = async () => {
-      if (this.isDestroyed) return;
+      if (this.isDestroyed || this.isPolling) return;
       if (this.isConnected()) {
         // Slow down polling significantly once DataChannel is alive
         return;
       }
 
+      this.isPolling = true;
       try {
         const res = await fetch(
           `/api/signal/${roomId}?senderId=${encodeURIComponent(this.clientId)}&since=${this.lastPollTimestamp}`
@@ -429,12 +431,15 @@ export class P2PGameTransport implements GameTransport {
             await this.handleSignalingMessage(msg.id, msg.type, msg.data);
           }
         }
-      } catch {}
+      } catch {
+      } finally {
+        this.isPolling = false;
+      }
     };
 
     poll();
-    // Poll every 320ms during negotiation
-    this.pollInterval = setInterval(poll, 320);
+    // A single in-flight request at a time keeps serverless signaling responsive without overlap.
+    this.pollInterval = setInterval(poll, 120);
   }
 
   private stopSignalingPoll() {
@@ -442,6 +447,7 @@ export class P2PGameTransport implements GameTransport {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
     }
+    this.isPolling = false;
   }
 
   private async handleSignalingMessage(id: string, type: string, data: unknown) {
