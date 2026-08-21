@@ -14,6 +14,7 @@ export interface MessageEnvelope {
 export type GameMessageType =
   | 'hello'
   | 'ready'
+  | 'country-update'
   | 'start'
   | 'move'
   | 'clock-sync'
@@ -30,6 +31,7 @@ export type GameMessageType =
 export type GameMessagePayload =
   | HelloPayload
   | ReadyPayload
+  | CountryUpdatePayload
   | StartPayload
   | MovePayload
   | ClockSyncPayload
@@ -45,11 +47,18 @@ export type GameMessagePayload =
 
 export interface HelloPayload {
   type: 'hello';
+  country?: string;
 }
 
 export interface ReadyPayload {
   type: 'ready';
   color: Color;
+  country?: string;
+}
+
+export interface CountryUpdatePayload {
+  type: 'country-update';
+  country: string;
 }
 
 export interface StartPayload {

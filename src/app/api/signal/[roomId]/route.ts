@@ -68,14 +68,15 @@ export async function POST(
     );
   }
 
-  const { senderId, type, data } = body;
+  const { id, senderId, type, data } = body;
 
   const result = await addRoomMessage(
     roomId,
     senderId as string,
     type as string,
     data,
-    textLength
+    textLength,
+    typeof id === 'string' ? id : undefined
   );
 
   if (!result.ok) {

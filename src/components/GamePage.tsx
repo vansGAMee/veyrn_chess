@@ -1,16 +1,23 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
+import Link from 'next/link';
 import { GameEngine } from '@/engine/GameEngine';
 import {
-  P2PGameTransport,
+  type GameTransport,
   type TransportStatus,
   type TransportStats,
 } from '@/transport/GameTransport';
-import type { TimeControl, MoveIntent } from '@/types/chess';
+import { P2PGameTransport } from '@/transport/GameTransport';
+import type { TimeControl, MoveIntent, RoomStatus } from '@/types/chess';
 import type { Color, Square } from '@/types/chess';
 import { TIME_CONTROLS } from '@/types/chess';
 import type { GameMessagePayload } from '@/types/protocol';
+import { createGameRecord, saveGameRecord } from '@/lib/gameStats';
+import { normalizeCountryCode } from '@/lib/countries';
+import { useCountry } from '@/lib/useCountry';
+import { CountrySelect } from '@/components/CountrySelect';
+import { CountryFlag } from '@/components/CountryFlag';
 import { Chessboard } from '@/components/Chessboard';
 import { Clock } from '@/components/Clock';
 import {
@@ -43,9 +50,33 @@ interface GamePageProps {
   isJoining?: boolean;
 }
 
+function PlayerIdentity({
+  country,
+  color,
+  isLocal = false,
+  active = false,
+}: {
+  country: string | null;
+  color: Color;
+  isLocal?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <span className={`player-name ${active ? 'active' : ''}`}>
+      <span className="player-flag" aria-label={country ? `Country ${country}` : 'Country unknown'}>
+        <CountryFlag code={country} />
+      </span>
+      <span className="player-identity-copy">
+        <strong>{country || '—'}</strong>
+        <small>{color === 'w' ? 'White' : 'Black'} / {isLocal ? 'You' : 'Opponent'}</small>
+      </span>
+    </span>
+  );
+}
+
 export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageProps) {
   const [engine] = useState(() => new GameEngine());
-  const transportRef = useRef<P2PGameTransport | null>(null);
+  const transportRef = useRef<GameTransport | null>(null);
 
   // Stable subscription with useSyncExternalStore
   const getSnapshot = useCallback(() => engine.getState(), [engine]);
@@ -64,8 +95,15 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
   const [activeRoomId, setActiveRoomId] = useState<string>(initialRoomId || '');
   const [isHostRole, setIsHostRole] = useState<boolean>(!isJoining);
   const [isZen, setIsZen] = useState(false);
+  const [opponentCountry, setOpponentCountry] = useState<string | null>(null);
+  const { country, setCountry, ready: countryReady } = useCountry();
   const zenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoJoinInitiatedRef = useRef(false);
+  const teardownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gameStartedAtRef = useRef(0);
+  const turnStartedAtRef = useRef(0);
+  const thinkTimesRef = useRef<number[]>([]);
+  const previousRoomStatusRef = useRef<RoomStatus>('idle');
 
   // Auto Zen: after first move, quiet secondary controls during focus
   const handleActivity = useCallback(() => {
@@ -108,12 +146,14 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           case 'hello': {
             // Guest announced presence to Host
             if (isHost) {
+              setOpponentCountry(normalizeCountryCode(payload.country));
               const hostColor: Color = Math.random() > 0.5 ? 'w' : 'b';
               const guestColor: Color = hostColor === 'w' ? 'b' : 'w';
 
               transport.send({
                 type: 'ready',
                 color: guestColor,
+                country,
               });
 
               engine.startGame(hostColor);
@@ -125,7 +165,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
           case 'ready': {
             // Guest receives allocated color from Host
-            const readyPayload = payload as { type: 'ready'; color: Color };
+            const readyPayload = payload as { type: 'ready'; color: Color; country?: string };
+            setOpponentCountry(normalizeCountryCode(readyPayload.country));
             engine.startGame(readyPayload.color);
             playPeerJoinedSound();
             setTimeout(() => playGameStartSound(), 280);
@@ -154,6 +195,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
               movePayload.promotion,
               movePayload.clock
             );
+            turnStartedAtRef.current = Date.now();
 
             const afterState = engine.getState().board;
             if (afterState.isCheck) {
@@ -170,6 +212,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
             // If premove was automatically executed, send it across the wire
             if (executedPremove && transportRef.current) {
+              thinkTimesRef.current.push(0);
               const times = engine.getCurrentTime();
               const myColor = engine.getPlayerColor();
               const myClock = myColor === 'w' ? times.white : times.black;
@@ -189,14 +232,21 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           case 'rematch-offer': {
             // Reciprocal rematch acceptance
             transport.send({ type: 'rematch-response', accepted: true });
-            engine.resetForRematch();
-            playGameStartSound();
+            if (engine.getState().room.status === 'ended') {
+              engine.resetForRematch();
+              playGameStartSound();
+            }
+            break;
+          }
+
+          case 'country-update': {
+            setOpponentCountry(normalizeCountryCode(payload.country));
             break;
           }
 
           case 'rematch-response': {
             const rematchPayload = payload as { type: 'rematch-response'; accepted: boolean };
-            if (rematchPayload.accepted) {
+            if (rematchPayload.accepted && engine.getState().room.status === 'ended') {
               engine.resetForRematch();
               playGameStartSound();
             }
@@ -204,7 +254,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
           }
 
           case 'resign': {
-            engine.resign();
+            engine.opponentResigned();
             playGameEndSound();
             break;
           }
@@ -219,7 +269,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
       return transport;
     },
-    [engine]
+    [country, engine]
   );
 
   const handleCreateRoom = useCallback(() => {
@@ -236,7 +286,6 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       console.warn('Host connection notice:', err);
     });
 
-    window.history.pushState({}, '', `/room/${roomId}`);
   }, [engine, selectedTC, setupTransport]);
 
   const handleJoinRoom = useCallback(
@@ -252,13 +301,13 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       transport
         .connect(roomId, false)
         .then(() => {
-          transport.send({ type: 'hello' });
+          transport.send({ type: 'hello', country });
         })
         .catch((err) => {
           console.warn('Guest connection notice:', err);
         });
     },
-    [engine, selectedTC, setupTransport]
+    [country, engine, selectedTC, setupTransport]
   );
 
   const handleRetryConnection = useCallback(() => {
@@ -272,11 +321,20 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
   // Auto-join from URL parameter
   useEffect(() => {
-    if (isJoining && initialRoomId && !autoJoinInitiatedRef.current) {
-      autoJoinInitiatedRef.current = true;
-      handleJoinRoom(initialRoomId);
+    if (isJoining && initialRoomId && countryReady && !autoJoinInitiatedRef.current) {
+      const timer = setTimeout(() => {
+        autoJoinInitiatedRef.current = true;
+        handleJoinRoom(initialRoomId);
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [isJoining, initialRoomId, handleJoinRoom]);
+  }, [countryReady, isJoining, initialRoomId, handleJoinRoom]);
+
+  useEffect(() => {
+    if (transportStatus === 'connected' && transportRef.current?.isConnected()) {
+      transportRef.current.send({ type: 'country-update', country });
+    }
+  }, [country, transportStatus]);
 
   const handleMove = useCallback((intent: MoveIntent): boolean => {
     const beforeState = engine.getState().board;
@@ -286,6 +344,10 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
     const success = engine.tryMove(intent);
     if (success) {
+      thinkTimesRef.current.push(
+        turnStartedAtRef.current ? Math.max(0, Date.now() - turnStartedAtRef.current) : 0
+      );
+      turnStartedAtRef.current = Date.now();
       const newState = engine.getState();
       if (newState.board.isCheck) {
         playCheckSound();
@@ -339,9 +401,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     if (transportRef.current) {
       transportRef.current.send({ type: 'rematch-offer' });
     }
-    engine.resetForRematch();
-    playGameStartSound();
-  }, [engine]);
+  }, []);
 
   const handleResign = useCallback(() => {
     if (transportRef.current) {
@@ -359,8 +419,9 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     setTransportStatus('idle');
     setTransportStats(null);
     setActiveRoomId('');
-    window.history.pushState({}, '', '/');
-    engine.createRoom('');
+    setOpponentCountry(null);
+    window.history.pushState({}, '', '/play');
+    engine.resetToIdle();
   }, [engine]);
 
   const handleSelectTC = useCallback(
@@ -377,7 +438,9 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       const vh = window.innerHeight;
       const vw = window.innerWidth;
 
-      const verticalReserved = 100;
+      const verticalReserved = state.room.status === 'idle'
+        ? (vw <= 600 ? 290 : 270)
+        : 170;
       const maxFromHeight = Math.floor(vh - verticalReserved);
       const maxFromWidth = vw - 32;
 
@@ -390,13 +453,17 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     computeBoardSize();
     window.addEventListener('resize', computeBoardSize);
     return () => window.removeEventListener('resize', computeBoardSize);
-  }, []);
+  }, [state.room.status]);
 
   // Teardown
   useEffect(() => {
+    if (teardownTimerRef.current) {
+      clearTimeout(teardownTimerRef.current);
+      teardownTimerRef.current = null;
+    }
     return () => {
       transportRef.current?.disconnect();
-      engine.destroy();
+      teardownTimerRef.current = setTimeout(() => engine.destroy(), 0);
     };
   }, [engine]);
 
@@ -422,13 +489,54 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
     ((board.turn === 'w' && room.whiteTime < 20) ||
       (board.turn === 'b' && room.blackTime < 20));
 
+  useEffect(() => {
+    const previous = previousRoomStatusRef.current;
+
+    if (room.status === 'playing' && previous !== 'playing') {
+      gameStartedAtRef.current = Date.now();
+      turnStartedAtRef.current = Date.now();
+      thinkTimesRef.current = [];
+    }
+
+    if (room.status === 'ended' && previous !== 'ended' && room.result) {
+      const player = room.playerColor || 'w';
+      saveGameRecord(
+        createGameRecord({
+          pgn: engine.getPgn(),
+          playerColor: player,
+          result: room.result,
+          timeControl: room.timeControl,
+          durationMs: Math.max(
+            1000,
+            gameStartedAtRef.current ? Date.now() - gameStartedAtRef.current : 1000
+          ),
+          thinkTimesMs: thinkTimesRef.current,
+          networkLatencyMs: transportStats?.roundTripTime
+            ? transportStats.roundTripTime * 1000
+            : undefined,
+          relay: transportStats?.isRelay,
+          whiteTime: room.whiteTime,
+          blackTime: room.blackTime,
+          country,
+          opponentCountry: opponentCountry || undefined,
+        })
+      );
+    }
+
+    previousRoomStatusRef.current = room.status;
+  }, [country, engine, opponentCountry, room, transportStats]);
+
   return (
     <div className={`app ${isZen && isPlaying ? 'zen-mode' : ''}`}>
+      <nav className="instrument-nav" aria-label="Platform navigation">
+        <Link href="/" aria-label="VEYRN home">V</Link>
+        <Link href="/stats">STAT</Link>
+        <span>LIVE / P2P</span>
+        <CountrySelect value={country} onChange={setCountry} compact />
+      </nav>
       {/* Top Player Row */}
       <div className="player-row">
-        <span className={`player-name ${topActive ? 'active' : ''}`}>
-          {topColor === 'w' ? 'White' : 'Black'}
-        </span>
+        <PlayerIdentity country={opponentCountry} color={topColor} active={topActive} />
         <Clock time={topTime} active={topActive} />
       </div>
 
@@ -446,8 +554,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
 
       {/* Bottom Player Row */}
       <div className="player-row">
-        <span className={`player-name ${bottomActive ? 'active' : ''}`}>
-          {bottomColor === 'w' ? 'White' : 'Black'}
+        <div className="player-local-actions">
+          <PlayerIdentity country={country} color={bottomColor} isLocal active={bottomActive} />
           {isPlaying && (
             <button
               onClick={handleResign}
@@ -458,7 +566,7 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
               Resign
             </button>
           )}
-        </span>
+        </div>
         <Clock time={bottomTime} active={bottomActive} />
       </div>
 

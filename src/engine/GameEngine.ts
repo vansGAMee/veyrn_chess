@@ -427,6 +427,27 @@ export class GameEngine {
     this.notify();
   }
 
+  resetToIdle() {
+    this.stopClock();
+    this.chess.reset();
+    this.roomId = '';
+    this.roomStatus = 'idle';
+    this.playerColor = null;
+    this.result = null;
+    this.lastMove = null;
+    this.selectedSquare = null;
+    this.premove = null;
+    this.setTimeControl(this.timeControl);
+  }
+
+  opponentResigned() {
+    if (this.roomStatus !== 'playing' || !this.playerColor) return;
+    this.result = { type: 'resignation', winner: this.playerColor };
+    this.roomStatus = 'ended';
+    this.stopClock();
+    this.notify();
+  }
+
   resetForRematch() {
     this.chess.reset();
     this.playerColor = this.playerColor === 'w' ? 'b' : 'w';

@@ -1,9 +1,32 @@
 import type { Metadata } from "next";
+import { IBM_Plex_Mono, IBM_Plex_Sans_Condensed } from "next/font/google";
 import "./globals.css";
+import "./marketing.css";
+
+const plexSans = IBM_Plex_Sans_Condensed({
+  weight: ["400", "500", "600"],
+  subsets: ["latin", "cyrillic-ext"],
+  variable: "--font-plex-sans",
+});
+
+const plexMono = IBM_Plex_Mono({
+  weight: ["400", "500", "600"],
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-plex-mono",
+});
 
 export const metadata: Metadata = {
-  title: "VEYRN — Precision Chess",
-  description: "A precision digital chess instrument. P2P multiplayer chess with the best-feeling board on the web.",
+  title: {
+    default: "VEYRN Chess — Play. Measure. Improve.",
+    template: "%s — VEYRN Chess",
+  },
+  description: "Бесплатные онлайн-шахматы без регистрации: P2P-партии, точная доска и подробная локальная статистика решений.",
+  keywords: ["online chess", "шахматы онлайн", "P2P chess", "chess statistics", "VEYRN"],
+  openGraph: {
+    title: "VEYRN Chess — Precision Digital Chess Instrument",
+    description: "Instant P2P chess and a private behavioral telemetry ledger.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -12,12 +35,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-      </head>
+    <html lang="ru" className={`${plexSans.variable} ${plexMono.variable}`} data-scroll-behavior="smooth">
       <body>
         {children}
       </body>

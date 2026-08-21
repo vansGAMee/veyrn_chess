@@ -1,7 +1,7 @@
 # VEYRN Chess
 
 > **Precision Digital Chess Instrument**  
-> A high-performance, free, and open chess platform built for players who value tactile feel, minimal design, and zero-latency peer-to-peer multiplayer.
+> A high-performance, free, and open chess platform with tactile play, private local telemetry, and direct peer-to-peer multiplayer.
 
 ---
 
@@ -11,15 +11,18 @@
 
 ## Overview
 
-**VEYRN Chess** is a modern web-based chess instrument engineered from the ground up to eliminate platform friction, visual clutter, and network lag. Built around a manufactured mineral aesthetic and direct browser-to-browser networking, VEYRN offers an uncompromised playing experience accessible to everyone directly via a single shareable link — with zero accounts, zero trackers, and zero paywalls.
+**VEYRN Chess** is a modern web-based chess instrument engineered to eliminate platform friction and visual clutter. It combines a multilingual launch page, manufactured-mineral board, direct browser-to-browser rooms, and a detailed behavioral telemetry ledger stored only in the player's browser — with zero accounts, trackers, or paywalls.
 
 ### Key Highlights
 
 - **Free & Universal Access**: Instant games with no registration or paywalls required.
-- **P2P WebRTC Multiplayer**: Moves transmitted directly between peers over encrypted WebRTC DataChannels for the lowest possible latency.
+- **P2P WebRTC Multiplayer**: A first-party serverless signaling route negotiates an encrypted browser-to-browser WebRTC DataChannel, typically in well under one second.
+- **Real Waitlist & SVG Country Flags**: Unique email registrations persist in Upstash Redis, while country is detected from IP, synchronized between peers, and remains manually overridable without a VEYRN profile.
+- **Private Precision Ledger**: Completed games generate local decision-rhythm, phase-tempo, move-grammar, opening, clock, and network metrics.
 - **Obsidian Instrument Aesthetic**: High-contrast, mathematically calibrated OKLCH color palette (Warm Mineral & Deep Cool Slate) with a micro-3D milled board perimeter.
 - **Right-Click Planning Layer**: Professional vector analysis arrows and square markers rendered on a non-occluding overlay layer.
-- **Hardware-Composited Drag Pipeline**: 60/120 FPS piece manipulation powered by direct pointer capture, sub-pixel grab offset tracking, and zero React render overhead during drags.
+- **Hardware-Composited Drag Pipeline**: 60/120 FPS piece manipulation with center-locked pickup, direct pointer capture, sub-pixel tracking, and zero React render overhead during drags.
+- **Mobile-First Game Controls**: 44px+ time presets, an explicit private-room action, and a centered post-game report with rematch, PGN and statistics actions.
 - **Procedural Web Audio Engine**: Synthesized tactile stone-on-mineral clicks, deep sub-frequency capture impacts, and spatial stereo panning across board files.
 - **Tabular Precision Clocks**: Monospace tabular numerals synchronized across peers with side-specific active indicators.
 
@@ -44,7 +47,10 @@ VEYRN.ru/
 │   │   ├── room/[id]/page.tsx            # P2P Guest Route
 │   │   ├── globals.css                   # Obsidian Instrument Design Tokens & Geometry
 │   │   ├── layout.tsx                    # Typography & Root Layout
-│   │   └── page.tsx                      # Host & Sandbox Interface
+│   │   ├── page.tsx                      # Marketing landing page
+│   │   ├── play/page.tsx                 # Host & Sandbox Interface
+│   │   ├── stats/page.tsx                # Private local telemetry ledger
+│   │   └── privacy/page.tsx              # Plain-language privacy policy
 │   ├── components/
 │   │   ├── Chessboard.tsx                # Drag Pipeline, Planning Layer & Signal Rail
 │   │   ├── Clock.tsx                     # Tabular Monospace Readout
@@ -56,7 +62,7 @@ VEYRN.ru/
 │   │   ├── GameEngine.ts                 # Chess Domain Coordinator (chess.js wrapper)
 │   │   └── SoundEngine.ts                # Web Audio Procedural Synthesis
 │   ├── transport/
-│   │   └── GameTransport.ts              # WebRTC DataChannel & Dual Signaling Mesh
+│   │   └── GameTransport.ts              # WebRTC transport + serverless negotiation
 │   └── types/
 │       ├── chess.ts                      # Domain Models & Time Controls
 │       └── protocol.ts                   # Binary/JSON Wire Protocol Envelopes
@@ -74,7 +80,8 @@ VEYRN.ru/
 - **Framework**: Next.js 16 (App Router, Turbopack, Serverless API Routes)
 - **Language**: TypeScript 5 (Strict Mode)
 - **Domain Engine**: `chess.js` 1.4.0 (Full FIDE Rule Compliance, PGN Generation, En Passant, Castling, 50-Move & Threefold Draw Detection)
-- **Multiplayer Transport**: WebRTC DataChannels + Dual Signaling (BroadcastChannel for local tabs + Ephemeral Serverless HTTP polling for remote peers)
+- **Multiplayer Transport**: WebRTC DataChannels with first-party serverless signaling and optional TURN fallback
+- **Production Storage**: Upstash Redis for signaling messages and unique waitlist registrations
 - **Acoustics**: Web Audio API (Synthesized BiquadFilters, stereo spatial panning, sub-bass oscillator transients)
 - **Styling**: Vanilla CSS with CSS Custom Properties and OKLCH color space
 
@@ -82,13 +89,13 @@ VEYRN.ru/
 
 ## Launch Roadmap & Milestone
 
-VEYRN is currently in closed pre-launch polish. 
+VEYRN is launch-ready for invite-link games; the public waitlist is collecting demand for native matchmaking.
 
 - [x] **Phase 1**: Core Chess Engine & Domain Logic (26/26 Tests Passing)
 - [x] **Phase 2**: Dual-Channel WebRTC P2P Transport & Session Recovery
 - [x] **Phase 3**: Obsidian Instrument Design System & Hardware Drag Engine
 - [x] **Phase 4**: Right-Click Planning Vector Layer & Raycast-Style Control Strip
-- [ ] **Phase 5 (Public Launch)**: Launching publicly for the global community upon reaching 3,000 wishlist registrations on the upcoming landing portal.
+- [x] **Phase 5 (Launch Platform)**: Multilingual landing page, private player telemetry, and database-free P2P room discovery.
 - [ ] **Phase 6**: Engine Analysis integration (Stockfish 17 via WebAssembly) & opening book explorer.
 
 ---
@@ -119,7 +126,17 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000) for the landing page or [http://localhost:3000/play](http://localhost:3000/play) for the board.
+
+### Free Vercel deployment
+
+1. In Vercel, choose **Add New → Project**, import `vansGAMee/veyrn_chess`, keep the detected **Next.js** preset, and deploy.
+2. Create a free Redis database at Upstash, then open **Project → Settings → Environment Variables** in Vercel.
+3. Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for **Production, Preview and Development**. These values power multi-instance room signaling and the unique waitlist counter.
+4. Open **Deployments**, select the latest deployment and choose **Redeploy** so the new variables are included.
+5. Verify `/api/waitlist`, create a room in one browser, and open its URL in another browser or device.
+
+No paid service is required for the MVP. Public STUN is built in. TURN is optional for restrictive corporate/VPN/mobile NATs; if you add it, set `NEXT_PUBLIC_TURN_URLS`, `NEXT_PUBLIC_TURN_USERNAME` and `NEXT_PUBLIC_TURN_CREDENTIAL` from a trusted provider and redeploy. Never commit Redis or TURN credentials.
 
 ### Running Test Suites
 

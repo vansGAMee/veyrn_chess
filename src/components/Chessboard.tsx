@@ -123,9 +123,10 @@ export function Chessboard({
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
 
-    const cellSize = rect.width / 8;
-    let file = Math.floor((clientX - rect.left) / cellSize);
-    let rank = Math.floor((clientY - rect.top) / cellSize);
+    const cellWidth = rect.width / 8;
+    const cellHeight = rect.height / 8;
+    let file = Math.floor((clientX - rect.left) / cellWidth);
+    let rank = Math.floor((clientY - rect.top) / cellHeight);
 
     if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
 
@@ -142,8 +143,8 @@ export function Chessboard({
     const drag = dragRef.current;
     if (!drag || !drag.isDragging) return;
 
-    const dx = drag.latestX - drag.startX;
-    const dy = drag.latestY - drag.startY;
+    const dx = drag.latestX - drag.startX + drag.grabOffsetX;
+    const dy = drag.latestY - drag.startY + drag.grabOffsetY;
 
     drag.pieceEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
     drag.rafId = requestAnimationFrame(() => updateDragPositionRef.current());
@@ -224,8 +225,8 @@ export function Chessboard({
         if (!pieceEl) return;
 
         const pieceRect = pieceEl.getBoundingClientRect();
-        const grabOffsetX = e.clientX - pieceRect.left;
-        const grabOffsetY = e.clientY - pieceRect.top;
+        const grabOffsetX = e.clientX - (pieceRect.left + pieceRect.width / 2);
+        const grabOffsetY = e.clientY - (pieceRect.top + pieceRect.height / 2);
 
         pieceEl.setPointerCapture(e.pointerId);
         pieceEl.classList.add('dragging');

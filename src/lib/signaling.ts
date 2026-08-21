@@ -141,7 +141,8 @@ export async function addRoomMessage(
   senderId: string,
   type: string,
   data: unknown,
-  payloadSize: number
+  payloadSize: number,
+  messageId?: string
 ): Promise<{ ok: boolean; id?: string; timestamp?: number; error?: string; status?: number }> {
   if (!validateRoomId(roomId)) {
     return { ok: false, error: 'Invalid room ID format', status: 400 };
@@ -160,8 +161,11 @@ export async function addRoomMessage(
   }
 
   const timestamp = getMonotonicTimestamp();
+  const safeMessageId = messageId && /^[a-zA-Z0-9_-]{1,128}$/.test(messageId)
+    ? messageId
+    : `${timestamp}-${Math.random().toString(36).substring(2, 9)}`;
   const message: SignalMessage = {
-    id: `${timestamp}-${Math.random().toString(36).substring(2, 9)}`,
+    id: safeMessageId,
     senderId,
     type,
     data,

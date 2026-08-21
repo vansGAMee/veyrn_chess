@@ -18,9 +18,23 @@ export function SetupControls({
   onCreateRoom,
   statusText = 'P2P DIRECT',
 }: SetupControlsProps) {
+  const controlNames: Record<string, string> = {
+    '∞': 'UNTIMED',
+    '3+0': 'BLITZ',
+    '3+2': 'BLITZ + INC',
+    '5+0': 'RAPID',
+    '10+0': 'RAPID+',
+  };
+
   return (
-    <div className="control-strip" role="group" aria-label="Instrument control strip">
-      {/* Presets segment */}
+    <div className="setup-panel" role="group" aria-label="Time control and room creation">
+      <div className="setup-heading">
+        <span>CHOOSE TIME CONTROL</span>
+        <div className="control-status" title="WebRTC Direct Mesh Ready">
+          <span className="status-dot" />
+          <span className="status-label">{statusText}</span>
+        </div>
+      </div>
       <div className="control-segment-tc">
         {TIME_CONTROLS.map((tc) => (
           <button
@@ -30,24 +44,28 @@ export function SetupControls({
             aria-pressed={selectedTC.label === tc.label}
             aria-label={`Time control ${tc.label}`}
           >
-            {tc.label}
+            <strong>{tc.label}</strong>
+            <small>{controlNames[tc.label]}</small>
           </button>
         ))}
       </div>
-
-      {/* Primary Action */}
-      <button
-        className="control-action-create"
-        onClick={onCreateRoom}
-        aria-label="Create room"
-      >
-        Create room
-      </button>
-
-      {/* Utility Status indicator */}
-      <div className="control-status" title="WebRTC Direct Mesh Ready">
-        <span className="status-dot" />
-        <span className="status-label">{statusText}</span>
+      <div className="setup-actions">
+        <button
+          className="control-action-create"
+          onClick={onCreateRoom}
+          aria-label={`Create private room with ${selectedTC.label} time control`}
+        >
+          CREATE PRIVATE ROOM <span>↗</span>
+        </button>
+        <a
+          className="control-secondary-link"
+          href="https://lichess.org/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Найти соперника на Lichess в новой вкладке"
+        >
+          NO FRIEND? OPEN LICHESS ↗
+        </a>
       </div>
     </div>
   );
@@ -79,7 +97,7 @@ export function WaitingBar({ roomId }: WaitingBarProps) {
   }, [roomId]);
 
   return (
-    <div className="control-strip waiting-strip waiting-bar">
+    <div className="control-strip waiting-strip waiting-bar" data-room-id={roomId}>
       <div className="waiting-info">
         <span className="status-dot waiting" />
         <span className="waiting-text">Awaiting Opponent</span>
@@ -214,24 +232,28 @@ export function GameEndBar({ result, onRematch, onNewRoom, pgn }: GameEndBarProp
   }, [pgn]);
 
   return (
-    <div className="control-strip end-strip">
-      <div className="game-end-summary">
-        <span className="end-main">{main}</span>
-        <span className="end-divider">/</span>
-        <span className="end-detail">{detail}</span>
-      </div>
-      <div className="end-actions">
-        <button className="control-action-rematch" onClick={onRematch}>
-          Rematch
-        </button>
-        {pgn && (
-          <button className="control-action-pgn" onClick={handleCopyPgn}>
-            {copiedPgn ? 'PGN Copied' : 'Copy PGN'}
+    <div className="game-result-overlay" role="dialog" aria-modal="true" aria-labelledby="game-result-title">
+      <div className="game-result-card">
+        <div className="result-kicker"><span /> GAME COMPLETE</div>
+        <div className="result-mark" aria-hidden="true">{result.type === 'checkmate' ? '♚' : '◆'}</div>
+        <div className="game-end-summary">
+          <span className="end-main" id="game-result-title">{main}</span>
+          <span className="end-detail">{detail}</span>
+        </div>
+        <div className="end-actions">
+          <button className="control-action-rematch" onClick={onRematch}>
+            REMATCH <span>↗</span>
           </button>
-        )}
-        <button className="control-action-new" onClick={onNewRoom}>
-          New Game
-        </button>
+          <button className="control-action-new" onClick={onNewRoom}>
+            NEW ROOM
+          </button>
+          {pgn && (
+            <button className="control-action-pgn" onClick={handleCopyPgn}>
+              {copiedPgn ? 'PGN COPIED' : 'COPY PGN'}
+            </button>
+          )}
+        </div>
+        <a className="result-stats-link" href="/stats">OPEN BEHAVIORAL REPORT →</a>
       </div>
     </div>
   );
