@@ -11,7 +11,7 @@
 
 ## Overview
 
-**VEYRN Chess** is a modern web-based chess instrument engineered to eliminate platform friction and visual clutter. It combines a multilingual launch page, manufactured-mineral board, direct browser-to-browser rooms, optional Lichess matchmaking, and a detailed behavioral telemetry ledger stored only in the player's browser — with no VEYRN account, trackers, or paywalls.
+**VEYRN Chess** is a modern web-based chess instrument engineered to eliminate platform friction and visual clutter. It combines a multilingual launch page, manufactured-mineral board, direct browser-to-browser rooms, optional Lichess matchmaking, and a detailed behavioral telemetry ledger stored only in the player's browser — with no VEYRN account or paywalls.
 
 ### Key Highlights
 
@@ -24,6 +24,7 @@
 - **Right-Click Planning Layer**: Professional vector analysis arrows and square markers rendered on a non-occluding overlay layer.
 - **Hardware-Composited Drag Pipeline**: 60/120 FPS piece manipulation with center-locked pickup, direct pointer capture, sub-pixel tracking, and zero React render overhead during drags.
 - **Mobile-First Game Controls**: 44px+ time presets, an explicit private-room action, and a centered post-game report with rematch, PGN and statistics actions.
+- **Privacy-Preserving Traffic Analytics**: Cookie-free Vercel Web Analytics measures anonymous page views; moves, PGNs and local behavioral reports are never attached to analytics events.
 - **Procedural Web Audio Engine**: Synthesized tactile stone-on-mineral clicks, deep sub-frequency capture impacts, and spatial stereo panning across board files.
 - **Tabular Precision Clocks**: Monospace tabular numerals synchronized across peers with side-specific active indicators.
 
@@ -138,7 +139,8 @@ Open [http://localhost:3000](http://localhost:3000) for the landing page or [htt
 2. Create a free Redis database at Upstash, then open **Project → Settings → Environment Variables** in Vercel.
 3. Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` for **Production, Preview and Development**. These values power multi-instance room signaling and the unique waitlist counter.
 4. Open **Deployments**, select the latest deployment and choose **Redeploy** so the new variables are included.
-5. Verify `/api/waitlist`, create a room in one browser, and open its URL in another browser or device.
+5. Open **Analytics** in the Vercel project and enable Web Analytics for anonymous, cookie-free page-view measurement.
+6. Verify `/api/waitlist`, create a room in one browser, and open its URL in another browser or device.
 
 No paid service is required for the MVP. Public STUN is built in. TURN is optional for restrictive corporate/VPN/mobile NATs; if you add it, set `NEXT_PUBLIC_TURN_URLS`, `NEXT_PUBLIC_TURN_USERNAME` and `NEXT_PUBLIC_TURN_CREDENTIAL` from a trusted provider and redeploy. Never commit Redis or TURN credentials.
 
