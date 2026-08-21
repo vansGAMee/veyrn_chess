@@ -55,6 +55,7 @@ interface DragState {
   rafId: number;
   latestX: number;
   latestY: number;
+  dragThreshold: number;
 }
 
 interface RightDragState {
@@ -62,7 +63,7 @@ interface RightDragState {
   currentSquare: Square | null;
 }
 
-export function Chessboard({
+function ChessboardComponent({
   board,
   playerColor,
   flipped,
@@ -197,7 +198,9 @@ export function Chessboard({
           }
 
           if (isMyTurn || !interactive) {
-            onMove({ from, to });
+            if (!interactive || board.legalMoves.includes(to)) {
+              onMove({ from, to });
+            }
           } else if (onPremove) {
             onPremove({ from, to });
           }
@@ -228,9 +231,6 @@ export function Chessboard({
         const grabOffsetX = e.clientX - (pieceRect.left + pieceRect.width / 2);
         const grabOffsetY = e.clientY - (pieceRect.top + pieceRect.height / 2);
 
-        pieceEl.setPointerCapture(e.pointerId);
-        pieceEl.classList.add('dragging');
-
         dragRef.current = {
           pieceEl,
           square,
@@ -242,6 +242,7 @@ export function Chessboard({
           rafId: 0,
           latestX: e.clientX,
           latestY: e.clientY,
+          dragThreshold: e.pointerType === 'touch' ? 12 : 3,
         };
       } else {
         onSelect(null);
@@ -251,7 +252,7 @@ export function Chessboard({
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const sq = getSquareFromPointer(e.clientX, e.clientY);
-    setHoveredSquare(sq);
+    if (!dragRef.current) setHoveredSquare(sq);
 
     // Right drag arrow tracking
     if (rightDragRef.current && sq) {
@@ -270,8 +271,10 @@ export function Chessboard({
     const dx = Math.abs(e.clientX - drag.startX);
     const dy = Math.abs(e.clientY - drag.startY);
 
-    if (!drag.isDragging && (dx > 2 || dy > 2)) {
+    if (!drag.isDragging && (dx > drag.dragThreshold || dy > drag.dragThreshold)) {
       drag.isDragging = true;
+      drag.pieceEl.setPointerCapture(e.pointerId);
+      drag.pieceEl.classList.add('dragging');
       drag.rafId = requestAnimationFrame(updateDragPosition);
     }
 
@@ -619,3 +622,5 @@ export function Chessboard({
     </div>
   );
 }
+
+export const Chessboard = React.memo(ChessboardComponent);

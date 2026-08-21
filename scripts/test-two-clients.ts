@@ -240,7 +240,11 @@ async function runTwoClientE2ETest() {
 
   // Test Auto Zen & Mobile viewport on a third context
   console.log('\n10. Testing mobile responsive layout (390x844)...');
-  const contextMobile = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const contextMobile = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
   const pageMobile = await contextMobile.newPage();
   await pageMobile.goto(`${baseUrl}/play`);
   await pageMobile.waitForSelector('.board-container');
@@ -254,6 +258,19 @@ async function runTwoClientE2ETest() {
   if (mobileMetrics.controls.some((height) => height < 44) || mobileMetrics.create < 44) throw new Error('Mobile time controls are below 44px');
   if (mobileMetrics.overflow > 0) throw new Error(`Mobile horizontal overflow: ${mobileMetrics.overflow}px`);
   console.log('✅ Mobile layout verified at 390x844 without horizontal scroll');
+
+  await pageMobile.locator('.square[data-sq="e2"]').tap();
+  if (await pageMobile.locator('.square.selected[data-sq="e2"]').count() !== 1) {
+    throw new Error('Mobile tap did not select the e2 pawn');
+  }
+  if (await pageMobile.locator('.square.legal[data-sq="e4"]').count() !== 1) {
+    throw new Error('Mobile selection did not highlight e4 as a legal destination');
+  }
+  await pageMobile.locator('.square[data-sq="e4"]').tap();
+  if (await pageMobile.locator('.square[data-sq="e4"] .piece').count() !== 1) {
+    throw new Error('Mobile tap-to-move did not commit e2-e4');
+  }
+  console.log('✅ Mobile tap selects a piece, highlights legal targets and commits the move');
 
   await browser.close();
   console.log('\n🎉 ALL TWO-CLIENT REAL BROWSER ACCEPTANCE TESTS PASSED!');

@@ -22,6 +22,7 @@ export class GameEngine {
   private blackTime: number = 300;
   private clockInterval: ReturnType<typeof setInterval> | null = null;
   private lastClockTick: number = 0;
+  private lastClockDisplayBucket: number | null = null;
   private selectedSquare: Square | null = null;
   private lastMove: { from: Square; to: Square } | null = null;
   private premove: MoveIntent | null = null;
@@ -36,9 +37,11 @@ export class GameEngine {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() {
+  private notify(boardChanged = true) {
     this._cachedState = {
-      board: this.getBoardState(),
+      board: !boardChanged && this._cachedState
+        ? this._cachedState.board
+        : this.getBoardState(),
       room: this.getRoomState(),
       premove: this.premove,
     };
@@ -387,13 +390,16 @@ export class GameEngine {
     this.stopClock();
     if (this.timeControl.initial === Infinity) return;
     this.lastClockTick = performance.now();
+    this.lastClockDisplayBucket = null;
     this.clockInterval = setInterval(() => {
       const now = performance.now();
       const elapsed = (now - this.lastClockTick) / 1000;
       this.lastClockTick = now;
 
+      let activeTime: number;
       if (this.chess.turn() === 'w') {
         this.whiteTime = Math.max(0, this.whiteTime - elapsed);
+        activeTime = this.whiteTime;
         if (this.whiteTime <= 0) {
           this.result = { type: 'timeout', winner: 'b' };
           this.roomStatus = 'ended';
@@ -401,13 +407,21 @@ export class GameEngine {
         }
       } else {
         this.blackTime = Math.max(0, this.blackTime - elapsed);
+        activeTime = this.blackTime;
         if (this.blackTime <= 0) {
           this.result = { type: 'timeout', winner: 'w' };
           this.roomStatus = 'ended';
           this.stopClock();
         }
       }
-      this.notify();
+
+      const displayBucket = activeTime < 10
+        ? Math.floor(activeTime * 10)
+        : Math.floor(activeTime);
+      if (displayBucket !== this.lastClockDisplayBucket || this.roomStatus === 'ended') {
+        this.lastClockDisplayBucket = displayBucket;
+        this.notify(false);
+      }
     }, 100);
   }
 
