@@ -325,8 +325,8 @@ export default function GamePage({ roomId: initialRoomId, isJoining }: GamePageP
       moves: splitUciMoves(remoteState.moves),
       playerColor: lichessColorRef.current,
       timeControl: LICHESS_TIME_CONTROL,
-      whiteTime: remoteState.wtime / 100,
-      blackTime: remoteState.btime / 100,
+      whiteTime: remoteState.wtime / 1000,
+      blackTime: remoteState.btime / 1000,
       status: remoteState.status === 'started' ? 'playing' : 'ended',
       result: lichessResult(remoteState),
     });

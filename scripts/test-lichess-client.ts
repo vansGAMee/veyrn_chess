@@ -142,6 +142,11 @@ async function run() {
     throw new Error(`Lichess opponent was not rendered: ${opponentRow}`);
   }
 
+  const initialClocks = await page.locator('.clock').allTextContents();
+  if (initialClocks[0] !== '1:00') {
+    throw new Error(`Lichess milliseconds were rendered incorrectly: ${JSON.stringify(initialClocks)}`);
+  }
+
   await page.locator('.square[data-sq="e2"]').click();
   await page.locator('.square[data-sq="e4"]').click();
   await page.locator('.square[data-sq="e5"] .piece').waitFor({ timeout: 5000 });
