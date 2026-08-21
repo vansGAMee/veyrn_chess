@@ -5,6 +5,8 @@ async function runTwoClientE2ETest() {
 
   const port = process.env.PORT || '3000';
   const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
+  const forceRelay = process.env.FORCE_RELAY === '1';
+  const dropFirstSignalPost = process.env.DROP_FIRST_SIGNAL_POST === '1';
 
   const browser = await chromium.launch({ headless: true });
 
@@ -16,6 +18,35 @@ async function runTwoClientE2ETest() {
   // Browser Context B (Guest)
   const contextB = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await contextB.addInitScript(() => localStorage.setItem('veyrn:country:v1', 'DE'));
+
+  if (dropFirstSignalPost) {
+    for (const context of [contextA, contextB]) {
+      let dropped = false;
+      await context.route('**/api/signal/**', async (route) => {
+        if (!dropped && route.request().method() === 'POST') {
+          dropped = true;
+          await route.abort('connectionreset');
+          return;
+        }
+        await route.continue();
+      });
+    }
+    console.log('🧪 First signaling POST will be dropped for each client');
+  }
+
+  if (forceRelay) {
+    for (const context of [contextA, contextB]) {
+      await context.addInitScript(() => {
+        const NativePeerConnection = window.RTCPeerConnection;
+        window.RTCPeerConnection = class extends NativePeerConnection {
+          constructor(config?: RTCConfiguration) {
+            super({ ...config, iceTransportPolicy: 'relay' });
+          }
+        } as typeof RTCPeerConnection;
+      });
+    }
+    console.log('🔒 TURN relay-only mode enabled');
+  }
   const pageB = await contextB.newPage();
 
   for (const [label, page] of [['HOST', pageA], ['GUEST', pageB]] as const) {

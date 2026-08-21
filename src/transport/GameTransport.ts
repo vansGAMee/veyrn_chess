@@ -148,6 +148,7 @@ export class P2PGameTransport implements GameTransport {
   private stats: TransportStats | null = null;
   private isHost: boolean = false;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private joinRetryInterval: ReturnType<typeof setInterval> | null = null;
   private isPolling: boolean = false;
   private statsInterval: ReturnType<typeof setInterval> | null = null;
   private broadcastChannel: BroadcastChannel | null = null;
@@ -187,6 +188,7 @@ export class P2PGameTransport implements GameTransport {
   }
 
   async connect(roomId: string, isHost: boolean): Promise<void> {
+    this.stopJoinRetry();
     this.isDestroyed = false;
     this.sessionId = roomId;
     this.isHost = isHost;
@@ -240,6 +242,7 @@ export class P2PGameTransport implements GameTransport {
             // Keep host in waiting state until opponent appears
             this.setStatus('waiting');
           } else {
+            this.stopJoinRetry();
             this.setStatus('timeout');
             reject(new Error('Connection timeout waiting for host'));
           }
@@ -312,8 +315,8 @@ export class P2PGameTransport implements GameTransport {
           this.setupDataChannel(this.dc, resolve, connectionTimeout);
         };
 
-        // Send initial join request to trigger Host to provide or re-send offer
-        this.sendSignalingMessage('join-request', { guestId: this.clientId });
+        // Re-send until connected so one lost request cannot strand the room.
+        this.startJoinRetry();
       }
     });
   }
@@ -419,8 +422,9 @@ export class P2PGameTransport implements GameTransport {
 
       this.isPolling = true;
       try {
+        const since = Math.max(0, this.lastPollTimestamp - 5000);
         const res = await fetch(
-          `/api/signal/${roomId}?senderId=${encodeURIComponent(this.clientId)}&since=${this.lastPollTimestamp}`
+          `/api/signal/${roomId}?senderId=${encodeURIComponent(this.clientId)}&since=${since}`
         );
         if (!res.ok) return;
 
@@ -440,6 +444,28 @@ export class P2PGameTransport implements GameTransport {
     poll();
     // A single in-flight request at a time keeps serverless signaling responsive without overlap.
     this.pollInterval = setInterval(poll, 120);
+  }
+
+  private startJoinRetry() {
+    this.stopJoinRetry();
+
+    const requestJoin = () => {
+      if (this.isDestroyed || this.isConnected()) {
+        this.stopJoinRetry();
+        return;
+      }
+      void this.sendSignalingMessage('join-request', { guestId: this.clientId });
+    };
+
+    requestJoin();
+    this.joinRetryInterval = setInterval(requestJoin, 1500);
+  }
+
+  private stopJoinRetry() {
+    if (this.joinRetryInterval) {
+      clearInterval(this.joinRetryInterval);
+      this.joinRetryInterval = null;
+    }
   }
 
   private stopSignalingPoll() {
@@ -540,6 +566,7 @@ export class P2PGameTransport implements GameTransport {
     dc.onopen = async () => {
       this.setStatus('connected');
       this.stopSignalingPoll();
+      this.stopJoinRetry();
       clearTimeout(timeout);
       await this.logConnectionStats();
 
@@ -603,6 +630,7 @@ export class P2PGameTransport implements GameTransport {
   disconnect(): void {
     this.isDestroyed = true;
     this.stopSignalingPoll();
+    this.stopJoinRetry();
 
     if (this.statsInterval) {
       clearInterval(this.statsInterval);
