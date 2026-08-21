@@ -41,6 +41,7 @@ export const metadata: Metadata = {
     description: "Browser chess with private rooms, Lichess opponents, precise controls and local behavioral statistics.",
   },
   robots: { index: true, follow: true },
+  verification: { google: "z0GAcnNbZOQ6EJ5ePpWhk9x41IyAijIaLjU3Pv0d6Ic" },
 };
 
 export default function RootLayout({
